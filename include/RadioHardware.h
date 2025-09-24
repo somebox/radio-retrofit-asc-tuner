@@ -36,6 +36,7 @@ public:
 
   // Helper functions
   bool isValidKeypress(int key_number) const;
+  bool isInitialized() const;
   
   // Keypad operations
   bool hasKeypadEvent();

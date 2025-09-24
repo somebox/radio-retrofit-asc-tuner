@@ -13,7 +13,7 @@ DisplayManager::DisplayManager(int num_boards, int board_width, int board_height
   , character_width_(4)
   , max_characters_(total_width_ / character_width_)
   , drivers_{nullptr, nullptr, nullptr, nullptr}
-  , current_brightness_level_(BRIGHTNESS_INIT)
+  , current_brightness_level_(DEFAULT_BRIGHTNESS)
 {
 }
 
@@ -96,9 +96,8 @@ bool DisplayManager::verifyDrivers() {
     
     // Test basic operations
     drivers_[i]->clear();
-    drivers_[i]->drawPixel(0, 0, 100);
+    drivers_[i]->drawRect(2, 2, getWidth() - 4, getHeight() - 4, 100);
     drivers_[i]->show();
-    delay(100);  // Brief pause to see the test pixel
     drivers_[i]->clear();
     drivers_[i]->show();
     
@@ -456,8 +455,9 @@ void DisplayManager::displayStaticText(const String& text, bool use_alt_font) {
 // Brightness management
 void DisplayManager::setBrightnessLevel(BrightnessLevel level) {
   current_brightness_level_ = level;
-  setGlobalBrightness(getBrightness(level));
-  Serial.printf("Display brightness level: %d\n", static_cast<int>(level));
+  uint8_t brightness_value = getBrightnessValue(level);
+  setGlobalBrightness(brightness_value);
+  Serial.printf("Display brightness level: %d%% (%d)\n", static_cast<int>(level) * 5, brightness_value);
 }
 
 // Initialization helpers
@@ -468,12 +468,10 @@ void DisplayManager::showTestPattern() {
   // Create a simple test pattern - checkerboard
   for (int x = 0; x < total_width_; x++) {
     for (int y = 0; y < total_height_; y++) {
-      uint8_t brightness = ((x + y) % 2) == 0 ? 255 : 64;  // Alternating bright/dim
+      uint8_t brightness = ((x + y) % 2) == 0 ? getBrightnessValue(BRIGHTNESS_75_PERCENT) : getBrightnessValue(BRIGHTNESS_25_PERCENT);  // Alternating bright/dim
       setPixel(x, y, brightness);
     }
   }
-
-  // Update the display immediately
   updateDisplay();
 
   Serial.println("Display test pattern shown");

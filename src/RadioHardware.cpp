@@ -61,6 +61,10 @@ bool RadioHardware::initialize() {
   return keypad_ready_ || preset_led_ready_;  // Success if at least one component works
 }
 
+bool RadioHardware::isInitialized() const {
+  return initialized_;
+}
+
 void RadioHardware::setPresetHandler(PresetHandler* handler) {
   preset_handler_ = handler;
 }
@@ -383,15 +387,17 @@ bool RadioHardware::isValidKeypress(int key_number) const {
 }
 
 void RadioHardware::setBrightnessLevel(BrightnessLevel level) {
-  if (preset_led_driver_) {
-    uint8_t brightness = getBrightness(level);
+  if (preset_led_driver_ && preset_led_ready_) {
+    uint8_t brightness = getBrightnessValue(level);
     preset_led_driver_->setGlobalCurrent(brightness);
-    Serial.printf("Preset LED brightness level: %d\n", static_cast<int>(level));
+    Serial.printf("Preset LED brightness level: %d%% (%d)\n", static_cast<int>(level) * 5, brightness);
+  } else {
+    Serial.printf("WARNING: Cannot set brightness - preset LED driver not ready\n");
   }
 }
 
 void RadioHardware::showProgress(int progress) {
-  if (!preset_led_driver_) return;
+  if (!preset_led_driver_ || !preset_led_ready_) return;
 
   // Clamp progress to 0-100%
   progress = max(0, min(100, progress));
@@ -404,7 +410,7 @@ void RadioHardware::showProgress(int progress) {
 
   // Light up LEDs from left to right based on progress
   for (int i = 0; i < 8 && i < active_leds; i++) {
-    setLED(0, i, getBrightness(BRIGHTNESS_HIGH));  // Row 0, columns 0-7
+    setLED(0, i, getBrightnessValue(BRIGHTNESS_100_PERCENT));  // Row 0, columns 0-7
   }
 
   // Update the display immediately

@@ -60,11 +60,16 @@ RadioHardware* radio_hardware = nullptr;
 PresetHandler* preset_handler = nullptr;
 AnnouncementModule* announcement_module = nullptr;
 
+// Global brightness level management
+BrightnessLevel global_brightness = DEFAULT_BRIGHTNESS;
+
 // Forward declarations
 void configModeCallback(WiFiManager *myWiFiManager);
 bool check_button_press();
 void smooth_scroll_story();
 void select_random_message();
+void adjustGlobalBrightness(bool increase);
+void showBrightnessAnnouncement();
 
 // Time 
 tm timeinfo;
@@ -441,6 +446,52 @@ bool check_button_press() {
   return false;
 }
 
+// Global brightness control functions
+void adjustGlobalBrightness(bool increase) {
+  // Calculate new brightness level
+  BrightnessLevel new_level;
+
+  if (increase) {
+    // Increase by one step (5%)
+    int current_index = static_cast<int>(global_brightness);
+    if (current_index < BRIGHTNESS_STEPS - 1) {
+      new_level = static_cast<BrightnessLevel>(current_index + 1);
+    } else {
+      new_level = BRIGHTNESS_0_PERCENT;  // Wrap around to 0%
+    }
+  } else {
+    // Decrease by one step (5%)
+    int current_index = static_cast<int>(global_brightness);
+    if (current_index > 0) {
+      new_level = static_cast<BrightnessLevel>(current_index - 1);
+    } else {
+      new_level = static_cast<BrightnessLevel>(BRIGHTNESS_STEPS - 1);  // Wrap around to 100%
+    }
+  }
+
+  global_brightness = new_level;
+
+  // Update both display and preset LED brightness
+  if (display_manager) {
+    display_manager->setBrightnessLevel(global_brightness);
+  }
+  if (radio_hardware && radio_hardware->isInitialized()) {
+    radio_hardware->setBrightnessLevel(global_brightness);
+  }
+
+  Serial.printf("Global brightness adjusted to: %d%% (%d)\n",
+                static_cast<int>(global_brightness) * 5,
+                getBrightnessValue(global_brightness));
+}
+
+void showBrightnessAnnouncement() {
+  if (!announcement_module) return;
+
+  String brightness_text = "Brightness: " + getBrightnessPercentage(global_brightness);
+  announcement_module->show(brightness_text, 1500);  // Show for 1.5 seconds
+  Serial.printf("Brightness announcement: %s\n", brightness_text.c_str());
+}
+
 // Comprehensive I2C scan to detect all connected devices
 void performComprehensiveI2CScan() {
   Serial.println("\n" + String('=', 50));
@@ -534,9 +585,12 @@ void setup() {
   // Print display configuration and connection info
   display_manager->printDisplayConfiguration();
   
-  // Set display brightness to normal level
-  display_manager->setBrightnessLevel(BRIGHTNESS_NORMAL);
-  
+  // Set display brightness to default level (50%)
+  display_manager->setBrightnessLevel(DEFAULT_BRIGHTNESS);
+
+  // Initialize global brightness to default level
+  global_brightness = DEFAULT_BRIGHTNESS;
+
   // Verify each driver individually with proper error handling
   if (!display_manager->verifyDrivers()) {
     Serial.println("WARNING: Some display drivers failed verification!");
@@ -562,14 +616,16 @@ void setup() {
     Serial.println("WARNING: RadioHardware initialization had issues - check connections");
   } else {
     Serial.println("RadioHardware initialized successfully");
-    
-  // Set preset LED brightness to normal level
-  radio_hardware->setBrightnessLevel(BRIGHTNESS_NORMAL);
 
-  // Initialize AnnouncementModule
+    // Set preset LED brightness to default level (only if initialization succeeded)
+    if (radio_hardware) {
+      radio_hardware->setBrightnessLevel(global_brightness);
+    }
+
+    // Initialize AnnouncementModule
     Serial.println("Initializing AnnouncementModule...");
     announcement_module = new AnnouncementModule(display_manager);
-    
+
     // Initialize PresetHandler
     Serial.println("Initializing PresetHandler...");
     preset_handler = new PresetHandler(radio_hardware, announcement_module);
@@ -578,7 +634,7 @@ void setup() {
     } else {
       Serial.println("PresetHandler initialized successfully");
     }
-    
+
     // Connect PresetHandler to RadioHardware
     radio_hardware->setPresetHandler(preset_handler);
   }
@@ -599,12 +655,12 @@ void setup() {
   }
 
   // Step 1: Display test pattern
-  Serial.println("Testing display...");
+  Serial.println("Self Test...");
   if (display_manager) {
     display_manager->showTestPattern();
-    delay(1000);  // Show test pattern for 1 second
+    delay(250);  // Show test pattern for 1 second
   }
-  display_static_message("Display Test", true, 500);
+
   if (radio_hardware) {
     radio_hardware->showProgress(20);  // 20% - Display test
   }
@@ -637,7 +693,7 @@ void setup() {
 
     // Step 4: Time sync
     Serial.println("Syncing time...");
-    display_static_message("Syncing Time", true, 1500);
+    display_static_message("Syncing Time", true, 500);
     if (radio_hardware) {
       radio_hardware->showProgress(90);  // 90% - Time sync attempt
     }
@@ -674,7 +730,7 @@ void setup() {
   
   // Final step: System ready
   Serial.println("Initialization complete, starting demo mode...");
-  display_static_message("Ready", true, 1500);
+  display_static_message("Ready", true, 500);
   if (radio_hardware) {
     radio_hardware->clearAllPresetLEDs();  // Clear progress bar
     radio_hardware->updatePresetLEDs();
@@ -703,10 +759,12 @@ void loop()
   }
 
   // Update hardware - RadioHardware manages all control interactions
-  radio_hardware->update();
+  if (radio_hardware) {
+    radio_hardware->update();
+  }
 
   // Check for mode changes from initialization or preset buttons
-  if (preset_handler->hasModeChanged()) {
+  if (preset_handler && preset_handler->hasModeChanged()) {
     current_mode = (DisplayMode)preset_handler->getSelectedMode();
     Serial.printf("Mode: %s\n", mode_names[current_mode]);
 
@@ -717,12 +775,16 @@ void loop()
   }
 
   // Update all modules
-  preset_handler->update();
+  if (preset_handler) {
+    preset_handler->update();
+  }
 
-  announcement_module->update();
+  if (announcement_module) {
+    announcement_module->update();
+  }
 
   // Update current display mode (only if announcement is not active)
-  if (!announcement_module->isActive()) {
+  if (!announcement_module || !announcement_module->isActive()) {
     switch (current_mode) {
       case MODE_RETRO:
       case MODE_MODERN:

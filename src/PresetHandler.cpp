@@ -20,8 +20,8 @@ const PresetConfig PresetHandler::PRESET_CONFIGS[8] = {
   {3, "Animation", MODE_ANIMATION, 0, 3, 0, 3, true}, // Button 3 → LED CS4
   {4, "Preset 4", MODE_RETRO, 0, 5, 0, 5, false},    // Button 4 → LED CS6 (skip CS5)
   {5, "Preset 5", MODE_RETRO, 0, 6, 0, 6, false},    // Button 5 → LED CS7
-  {6, "Preset 6", MODE_RETRO, 0, 7, 0, 7, false},    // Button 6 → LED CS8
-  {7, "Memory", MODE_RETRO, 0, 8, 0, 8, false}       // Button 7 → LED CS9
+  {6, "Bright+", MODE_RETRO, 0, 7, 0, 7, false},     // Button 6 → LED CS8 (Brightness Up)
+  {7, "Bright-", MODE_RETRO, 0, 8, 0, 8, false}      // Button 7 → LED CS9 (Brightness Down)
 };
 
 PresetHandler::PresetHandler(RadioHardware* hardware, AnnouncementModule* announcement)
@@ -74,50 +74,81 @@ void PresetHandler::handleKeypadEvent(int row, int col, bool pressed) {
     Serial.printf("PresetHandler: No preset found for position row=%d, col=%d\n", row, col);
     return;
   }
-  
+
   int preset_id = config->id;
-  
+
   if (pressed) {
     Serial.printf("PresetHandler: Preset %d (%s) pressed\n", preset_id, config->name);
-    
+
     // Update state
     held_preset_ = preset_id;
     press_time_ = millis();
     updatePresetState(preset_id, PRESET_PRESSED);
-    
+
+    // Check if this is a brightness control button (6 or 7)
+    if (preset_id == 6 || preset_id == 7) {
+      // Handle brightness control - show brightness feedback instead of preset name
+      Serial.printf("PresetHandler: Brightness control button %d pressed\n", preset_id);
+
+      // Show current brightness level as announcement
+      extern void showBrightnessAnnouncement();
+      showBrightnessAnnouncement();
+
+      return;  // Don't show preset name announcement for brightness buttons
+    }
+
     // Show announcement with long duration (will be held while button pressed)
     if (announcement_module_) {
       announcement_module_->show(String(config->name), 30000); // Show for 30 seconds initially
     }
-    
+
   } else {
     Serial.printf("PresetHandler: Preset %d (%s) released\n", preset_id, config->name);
-    
+
     if (held_preset_ == preset_id) {
       // This is the preset that was being held
       release_time_ = millis();
       held_preset_ = -1;
-      
+
+      // Check if this is a brightness control button (6 or 7)
+      if (preset_id == 6 || preset_id == 7) {
+        // Handle brightness control
+        Serial.printf("PresetHandler: Brightness control button %d released\n", preset_id);
+
+        // Determine if brightness should increase or decrease
+        bool increase = (preset_id == 6);
+
+        // Call the brightness adjustment function (must be implemented in main.cpp)
+        extern void adjustGlobalBrightness(bool increase);
+        extern void showBrightnessAnnouncement();
+
+        adjustGlobalBrightness(increase);
+        showBrightnessAnnouncement();
+
+        // Don't change preset state for brightness buttons
+        return;
+      }
+
       // Set as current active preset
       previous_preset_ = current_preset_;
       current_preset_ = preset_id;
-      
+
       // Start fade immediately
       updatePresetState(preset_id, PRESET_TRANSITIONING);
-      
+
       // Clear all other presets to ensure only one is active
       for (int i = 0; i < 8; i++) {
         if (i != preset_id) {
           updatePresetState(i, PRESET_IDLE);
         }
       }
-      
+
       // Check for mode change
       if (config->is_mode_preset) {
         mode_changed_ = true;
         Serial.printf("Mode change requested: %d (%s)\n", preset_id, config->name);
       }
-      
+
       // Change announcement duration to 1 second after release
       if (announcement_module_) {
         // The announcement is already showing, just change the duration to 1000ms
@@ -125,7 +156,7 @@ void PresetHandler::handleKeypadEvent(int row, int col, bool pressed) {
       }
     }
   }
-  
+
   // Update LEDs immediately
   updateLEDs();
 }
@@ -266,10 +297,16 @@ void PresetHandler::updatePresetState(int preset_id, PresetState new_state) {
 
 void PresetHandler::updateDisplayText() {
   if (held_preset_ >= 0) {
-    const PresetConfig* config = getPresetConfig(held_preset_);
-    if (config) {
-      strncpy(display_text_, config->name, sizeof(display_text_) - 1);
-      display_text_[sizeof(display_text_) - 1] = '\0';
+    // Check if this is a brightness control button (6 or 7)
+    if (held_preset_ == 6 || held_preset_ == 7) {
+      // For brightness buttons, don't show their names while held
+      strcpy(display_text_, "");
+    } else {
+      const PresetConfig* config = getPresetConfig(held_preset_);
+      if (config) {
+        strncpy(display_text_, config->name, sizeof(display_text_) - 1);
+        display_text_[sizeof(display_text_) - 1] = '\0';
+      }
     }
   } else if (current_preset_ >= 0) {
     const PresetConfig* config = getPresetConfig(current_preset_);
@@ -297,9 +334,9 @@ void PresetHandler::calculateLEDBrightness(int preset_id, uint8_t& brightness) {
       break;
       
     case PRESET_PRESSED:
-      brightness = getBrightness(BRIGHTNESS_HIGH);  // Full brightness when pressed
+      brightness = getBrightnessValue(BRIGHTNESS_100_PERCENT);  // Full brightness when pressed
       break;
-      
+
     case PRESET_TRANSITIONING:
       // Fade from bright to dim over time
       if (release_time_ > 0) {
@@ -307,20 +344,20 @@ void PresetHandler::calculateLEDBrightness(int preset_id, uint8_t& brightness) {
         if (elapsed < FADE_DURATION) {
           // Fade from high to low brightness
           float progress = (float)elapsed / FADE_DURATION;
-          uint8_t high_bright = getBrightness(BRIGHTNESS_HIGH);
-          uint8_t low_bright = getBrightness(BRIGHTNESS_LOW);
+          uint8_t high_bright = getBrightnessValue(BRIGHTNESS_100_PERCENT);
+          uint8_t low_bright = getBrightnessValue(BRIGHTNESS_50_PERCENT);
           int fade_range = high_bright - low_bright;
           brightness = high_bright - (fade_range * progress);
         } else {
-          brightness = getBrightness(BRIGHTNESS_LOW);  // Dimmed brightness
+          brightness = getBrightnessValue(BRIGHTNESS_50_PERCENT);  // Dimmed brightness
         }
       } else {
-        brightness = getBrightness(BRIGHTNESS_LOW);
+        brightness = getBrightnessValue(BRIGHTNESS_50_PERCENT);
       }
       break;
-      
+
     case PRESET_ACTIVE:
-      brightness = getBrightness(BRIGHTNESS_LOW);  // Dimmed brightness for active preset
+      brightness = getBrightnessValue(BRIGHTNESS_50_PERCENT);  // Dimmed brightness for active preset
       break;
       
     default:
