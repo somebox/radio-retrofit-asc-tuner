@@ -2,11 +2,7 @@
 #include "RadioHardware.h"
 #include "AnnouncementModule.h"
 
-// Display modes - must match main.cpp
-#define MODE_RETRO 0
-#define MODE_MODERN 1  
-#define MODE_CLOCK 2
-#define MODE_ANIMATION 3
+// Use centralized DisplayMode enum
 
 // Use centralized brightness levels
 #include "BrightnessLevels.h"
@@ -14,14 +10,14 @@
 // Preset configuration - Based on RetroText PCB Layout (skip CS5)
 const PresetConfig PresetHandler::PRESET_CONFIGS[8] = {
   // ID, Name, Mode, Button(row,col), LED(row,col), is_mode_preset
-  {0, "Modern", MODE_MODERN, 0, 0, 0, 0, true},     // Button 0 → LED CS1 (0-based)
-  {1, "Retro", MODE_RETRO, 0, 1, 0, 1, true},       // Button 1 → LED CS2
-  {2, "Clock", MODE_CLOCK, 0, 2, 0, 2, true},        // Button 2 → LED CS3
-  {3, "Animation", MODE_ANIMATION, 0, 3, 0, 3, true}, // Button 3 → LED CS4
-  {4, "Preset 4", MODE_RETRO, 0, 5, 0, 5, false},    // Button 4 → LED CS6 (skip CS5)
-  {5, "Preset 5", MODE_RETRO, 0, 6, 0, 6, false},    // Button 5 → LED CS7
-  {6, "Bright+", MODE_RETRO, 0, 7, 0, 7, false},     // Button 6 → LED CS8 (Brightness Up)
-  {7, "Bright-", MODE_RETRO, 0, 8, 0, 8, false}      // Button 7 → LED CS9 (Brightness Down)
+  {0, "Modern", DisplayMode::MODERN, 0, 0, 0, 0, true},     // Button 0 → LED CS1 (0-based)
+  {1, "Retro", DisplayMode::RETRO, 0, 1, 0, 1, true},       // Button 1 → LED CS2
+  {2, "Clock", DisplayMode::CLOCK, 0, 2, 0, 2, true},        // Button 2 → LED CS3
+  {3, "Animation", DisplayMode::ANIMATION, 0, 3, 0, 3, true}, // Button 3 → LED CS4
+  {4, "Preset 4", DisplayMode::RETRO, 0, 5, 0, 5, false},    // Button 4 → LED CS6 (skip CS5)
+  {5, "Preset 5", DisplayMode::RETRO, 0, 6, 0, 6, false},    // Button 5 → LED CS7
+  {6, "Bright+", DisplayMode::RETRO, 0, 7, 0, 7, false},     // Button 6 → LED CS8 (Brightness Up)
+  {7, "Bright-", DisplayMode::RETRO, 0, 8, 0, 8, false}      // Button 7 → LED CS9 (Brightness Down)
 };
 
 PresetHandler::PresetHandler(RadioHardware* hardware, AnnouncementModule* announcement)
@@ -200,14 +196,14 @@ bool PresetHandler::shouldShowDisplayText() const {
   return show_display_text_;
 }
 
-int PresetHandler::getSelectedMode() const {
+DisplayMode PresetHandler::getSelectedMode() const {
   if (current_preset_ >= 0) {
     const PresetConfig* config = getPresetConfig(current_preset_);
     if (config && config->is_mode_preset) {
       return config->mode;
     }
   }
-  return MODE_RETRO; // Default fallback
+  return DisplayMode::RETRO; // Default fallback
 }
 
 void PresetHandler::updateLEDs() {
@@ -346,8 +342,11 @@ void PresetHandler::calculateLEDBrightness(int preset_id, uint8_t& brightness) {
           float progress = (float)elapsed / FADE_DURATION;
           uint8_t high_bright = getBrightnessValue(BRIGHTNESS_100_PERCENT);
           uint8_t low_bright = getBrightnessValue(BRIGHTNESS_50_PERCENT);
-          int fade_range = high_bright - low_bright;
-          brightness = high_bright - (fade_range * progress);
+          int fade_range = (int)high_bright - (int)low_bright;
+          int computed = (int)high_bright - (int)(fade_range * progress);
+          if (computed < 0) computed = 0;
+          if (computed > 255) computed = 255;
+          brightness = static_cast<uint8_t>(computed);
         } else {
           brightness = getBrightnessValue(BRIGHTNESS_50_PERCENT);  // Dimmed brightness
         }

@@ -114,28 +114,18 @@ bool DisplayManager::verifyDrivers() {
 }
 
 void DisplayManager::scanI2C() {
-  Serial.println("\nScanning I2C bus for devices...");
-  uint8_t device_count = 0;
-  
-  for (uint8_t address = 1; address < 127; address++) {
-    Wire.beginTransmission(address);
-    uint8_t error = Wire.endTransmission();
-    
-    if (error == 0) {
-      Serial.printf("I2C device found at address 0x%02X (%d)\n", address, address);
-      device_count++;
-    } else if (error == 4) {
-      // Only show timeout errors for expected LED driver addresses
-      if (address == 0x50 || address == 0x5A || address == 0x5F) {
-        Serial.printf("Timeout at expected LED driver address 0x%02X\n", address);
-      }
-    }
-  }
-  
-  if (device_count == 0) {
+  Serial.println("\nScanning I2C bus for display devices...");
+  // Known display addresses for IS31FL3737
+  static const I2CKnownDevice known[] = {
+    {0x50, "IS31FL3737 Display (GND)"},
+    {0x5A, "IS31FL3737 Display (VCC)"},
+    {0x5F, "IS31FL3737 Display (SDA)"}
+  };
+  int found = scanI2CBus(known, sizeof(known)/sizeof(known[0]));
+  if (found == 0) {
     Serial.println("No I2C devices found via scan");
   } else {
-    Serial.printf("Found %d I2C device(s) via scan\n", device_count);
+    Serial.printf("Found %d I2C device(s) via scan\n", found);
   }
   Serial.println("I2C scan complete\n");
 }

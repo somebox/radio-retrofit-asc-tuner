@@ -4,6 +4,7 @@
 #include <Arduino.h>
 #include "IS31FL373x.h"
 #include "BrightnessLevels.h"
+#include "I2CScan.h"
 
 class DisplayManager {
 public:

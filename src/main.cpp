@@ -10,6 +10,7 @@
 #include <WiFi.h>
 #include <WiFiManager.h>
 #include "SignTextController.h"
+#include "I2CScan.h"
 #include "messages.h"
 #include "DisplayManager.h"
 #include "ClockDisplay.h"
@@ -26,16 +27,12 @@
 // Brightness levels are now managed by DisplayManager
 // Use DisplayManager::BrightnessLevel enum values instead
 
-// Mode system - four modes: Retro, Modern, Clock, Animation
-enum DisplayMode {
-  MODE_RETRO = 0,       // Retro font, smooth scrolling
-  MODE_MODERN = 1,      // Modern font, non-smooth scrolling  
-  MODE_CLOCK = 2,       // Clock display with time/date
-  MODE_ANIMATION = 3    // Meteor animation with parallax stars
-};
-const char* mode_names[] = {"Retro", "Modern", "Clock", "Animation"};
+#include "DisplayMode.h"
 
-DisplayMode current_mode = MODE_MODERN;  // Start with Modern mode (preset 0)
+// Mode system - centralized in DisplayMode.h
+static const char* mode_names[] = {"Retro", "Modern", "Clock", "Animation"};
+
+DisplayMode current_mode = DisplayMode::MODERN;  // Start with Modern mode (preset 0)
 
 
 
@@ -336,9 +333,9 @@ void smooth_scroll_story() {
   // Use the appropriate controller based on current mode
   RetroText::SignTextController* active_sign = nullptr;
   
-  if (current_mode == MODE_RETRO) {
+  if (current_mode == DisplayMode::RETRO) {
     active_sign = retro_sign;
-  } else if (current_mode == MODE_MODERN) {
+  } else if (current_mode == DisplayMode::MODERN) {
     active_sign = modern_sign;
   }
   
@@ -492,69 +489,28 @@ void showBrightnessAnnouncement() {
   Serial.printf("Brightness announcement: %s\n", brightness_text.c_str());
 }
 
-// Comprehensive I2C scan to detect all connected devices
+// Comprehensive I2C scan to detect all connected devices (shared helper)
 void performComprehensiveI2CScan() {
-  Serial.println("\n" + String('=', 50));
+  static const I2CKnownDevice known[] = {
+    {0x34, "TCA8418 Keypad Controller"},
+    {0x50, "IS31FL3737 Display (GND)"},
+    {0x55, "IS31FL3737 Preset LEDs (SCL)"},
+    {0x5A, "IS31FL3737 Display (VCC)"},
+    {0x5F, "IS31FL3737 Display (SDA)"},
+  };
+
+  Serial.println("\n==================================================");
   Serial.println("COMPREHENSIVE I2C DEVICE SCAN");
-  Serial.println(String('=', 50));
   Serial.println("Scanning I2C bus (SDA=GPIO21, SCL=GPIO22)...\n");
-  
-  int device_count = 0;
-  
-  for (uint8_t address = 1; address < 127; address++) {
-    Wire.beginTransmission(address);
-    uint8_t error = Wire.endTransmission();
-    
-    if (error == 0) {
-      Serial.printf("✓ Device found at 0x%02X (%d)", address, address);
-      
-      // Identify known devices
-      switch (address) {
-        case 0x34:
-          Serial.print(" - TCA8418 Keypad Controller");
-          break;
-        case 0x50:
-          Serial.print(" - IS31FL3737 Display Module (ADDR=GND)");
-          break;
-        case 0x55:
-          Serial.print(" - IS31FL3737 Preset LEDs (ADDR=SCL)");
-          break;
-        case 0x5A:
-          Serial.print(" - IS31FL3737 Display Module (ADDR=VCC)");
-          break;
-        case 0x5F:
-          Serial.print(" - IS31FL3737 Display Module (ADDR=SDA)");
-          break;
-        default:
-          Serial.print(" - Unknown Device");
-          break;
-      }
-      Serial.println();
-      device_count++;
-    }
+  int count = scanI2CBus(known, sizeof(known)/sizeof(known[0]));
+  Serial.printf("\nScan complete: Found %d I2C devices\n", count);
+  Serial.println("Expected devices after hardware fix:");
+  for (size_t i = 0; i < sizeof(known)/sizeof(known[0]); i++) {
+    Serial.printf("  0x%02X - %s\n", known[i].address, known[i].name);
   }
-  
-  Serial.printf("\nScan complete: Found %d I2C devices\n", device_count);
-  
-  // Expected device summary
-  Serial.println("\nExpected devices after hardware fix:");
-  Serial.println("  0x34 - TCA8418 Keypad Controller");
-  Serial.println("  0x50 - IS31FL3737 Display (GND)");
-  Serial.println("  0x55 - IS31FL3737 Preset LEDs (SCL)");
-  Serial.println("  0x5A - IS31FL3737 Display (VCC)");
-  Serial.println("  0x5F - IS31FL3737 Display (SDA)");
-  Serial.println("  Total expected: 5 devices");
-  
-  if (device_count == 5) {
-    Serial.println("\n✅ ALL EXPECTED DEVICES DETECTED!");
-  } else if (device_count < 5) {
-    Serial.printf("\n⚠️  Missing %d devices - check hardware connections\n", 5 - device_count);
-  } else {
-    Serial.printf("\n❓ Found %d extra devices\n", device_count - 5);
-  }
-  
-  Serial.println(String('=', 50));
-  delay(1000); // Give time to read the scan results
+  Serial.printf("  Total expected: %d devices\n", (int)(sizeof(known)/sizeof(known[0])));
+  Serial.println("==================================================");
+  delay(1000);
 }
 
 void setup() {
@@ -751,8 +707,8 @@ void loop()
   // FPS and status report every 5 seconds
   if (millis() - last_fps_report > 5000) {
     float fps = frame_count * 1000.0 / (millis() - last_fps_report);
-    Serial.printf("FPS: %.1f | Mode: %s | Announcement: %s\n",
-                  fps, mode_names[current_mode],
+  Serial.printf("FPS: %.1f | Mode: %s | Announcement: %s\n",
+                 fps, mode_names[static_cast<uint8_t>(current_mode)],
                   (announcement_module && announcement_module->isActive()) ? "active" : "idle");
     last_fps_report = millis();
     frame_count = 0;
@@ -765,8 +721,8 @@ void loop()
 
   // Check for mode changes from initialization or preset buttons
   if (preset_handler && preset_handler->hasModeChanged()) {
-    current_mode = (DisplayMode)preset_handler->getSelectedMode();
-    Serial.printf("Mode: %s\n", mode_names[current_mode]);
+    current_mode = preset_handler->getSelectedMode();
+    Serial.printf("Mode: %s\n", mode_names[static_cast<uint8_t>(current_mode)]);
 
     // Select a new random message when mode changes
     select_random_message();
@@ -786,14 +742,14 @@ void loop()
   // Update current display mode (only if announcement is not active)
   if (!announcement_module || !announcement_module->isActive()) {
     switch (current_mode) {
-      case MODE_RETRO:
-      case MODE_MODERN:
+      case DisplayMode::RETRO:
+      case DisplayMode::MODERN:
         smooth_scroll_story();
         break;
-      case MODE_CLOCK:
+      case DisplayMode::CLOCK:
         clock_display->update();
         break;
-      case MODE_ANIMATION:
+      case DisplayMode::ANIMATION:
         meteor_animation->update();
         break;
     }

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Arduino.h>
+#include "DisplayMode.h"
 
 // Forward declarations
 class RadioHardware;
@@ -10,7 +11,7 @@ class AnnouncementModule;
 struct PresetConfig {
   int id;                    // Preset ID (0-7)
   const char* name;          // Display name
-  int mode;                  // Associated display mode (0-3)
+  DisplayMode mode;          // Associated display mode
   int button_row;            // Keypad row
   int button_col;            // Keypad column  
   int led_row;               // LED matrix row (SW pin)
@@ -47,7 +48,7 @@ public:
   int getHeldPreset() const { return held_preset_; }
   const char* getDisplayText() const { return display_text_; }
   bool shouldShowDisplayText() const;
-  int getSelectedMode() const;  // Returns mode associated with current preset
+  DisplayMode getSelectedMode() const;  // Returns mode associated with current preset
   bool hasModeChanged() const { return mode_changed_; }
   void clearModeChanged() { mode_changed_ = false; }
   

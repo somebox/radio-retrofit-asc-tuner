@@ -1,6 +1,7 @@
 #include "RadioHardware.h"
 #include "PresetHandler.h"
 #include <algorithm>  // For max/min functions
+#include "I2CScan.h"
 
 // Preset LED mapping according to RetroText PCB Layout - Column 4 is skipped
 const RadioHardware::PresetLEDMapping RadioHardware::PRESET_LED_MAP[NUM_PRESETS] = {
@@ -111,45 +112,18 @@ bool RadioHardware::verifyHardware() {
 
 void RadioHardware::scanI2C() {
   Serial.println("\nScanning I2C bus for radio hardware...");
-  
-  int device_count = 0;
-  for (uint8_t address = 1; address < 127; address++) {
-    Wire.beginTransmission(address);
-    uint8_t error = Wire.endTransmission();
-    
-    if (error == 0) {
-      device_count++;
-      Serial.printf("I2C device found at address 0x%02X (%d)", address, address);
-      
-      // Identify known devices
-      switch (address) {
-        case 0x34:
-          Serial.print(" - TCA8418 Keypad Controller");
-          break;
-        case 0x50:
-          Serial.print(" - IS31FL3737 Display (GND)");
-          break;
-        case 0x5A:
-          Serial.print(" - IS31FL3737 Display (VCC)");
-          break;
-        case 0x5F:
-          Serial.print(" - IS31FL3737 Display (SDA)");
-          break;
-        case 0x55:
-          Serial.print(" - IS31FL3737 Preset LEDs (SCL)");
-          break;
-        default:
-          Serial.print(" - Unknown device");
-          break;
-      }
-      Serial.println();
-    }
-  }
-  
-  if (device_count == 0) {
+  static const I2CKnownDevice known[] = {
+    {0x34, "TCA8418 Keypad Controller"},
+    {0x55, "IS31FL3737 Preset LEDs (SCL)"},
+    {0x50, "IS31FL3737 Display (GND)"},
+    {0x5A, "IS31FL3737 Display (VCC)"},
+    {0x5F, "IS31FL3737 Display (SDA)"},
+  };
+  int found = scanI2CBus(known, sizeof(known)/sizeof(known[0]));
+  if (found == 0) {
     Serial.println("No I2C devices found via scan");
   } else {
-    Serial.printf("Found %d I2C device(s) via scan\n", device_count);
+    Serial.printf("Found %d I2C device(s) via scan\n", found);
   }
   Serial.println("I2C scan complete\n");
 }
