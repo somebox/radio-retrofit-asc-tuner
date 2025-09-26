@@ -14,14 +14,10 @@ MeteorAnimation::MeteorAnimation(DisplayManager* display_manager)
   , running_(false)
   , last_update_(0)
   , frame_count_(0)
-  , meteor_positions_(nullptr)
-  , star_positions_(nullptr)
 {
 }
 
-MeteorAnimation::~MeteorAnimation() {
-  cleanup();
-}
+MeteorAnimation::~MeteorAnimation() { }
 
 void MeteorAnimation::initialize() {
   if (initialized_) {
@@ -29,8 +25,8 @@ void MeteorAnimation::initialize() {
   }
   
   // Allocate memory for positions
-  meteor_positions_ = new float[num_meteors_];
-  star_positions_ = new float[num_stars_];
+  meteor_positions_.assign(num_meteors_, 0.0f);
+  star_positions_.assign(num_stars_, 0.0f);
   
   initializePositions();
   
@@ -112,7 +108,7 @@ void MeteorAnimation::setSpeed(float meteor_speed_multiplier, float star_speed_m
 }
 
 void MeteorAnimation::initializePositions() {
-  if (!meteor_positions_ || !star_positions_) return;
+  if (meteor_positions_.empty() || star_positions_.empty()) return;
   
   int display_width = display_manager_->getWidth();
   
@@ -128,7 +124,7 @@ void MeteorAnimation::initializePositions() {
 }
 
 void MeteorAnimation::updateMeteors() {
-  if (!meteor_positions_) return;
+  if (meteor_positions_.empty()) return;
   
   int display_width = display_manager_->getWidth();
   
@@ -147,7 +143,7 @@ void MeteorAnimation::updateMeteors() {
 }
 
 void MeteorAnimation::updateStars() {
-  if (!star_positions_) return;
+  if (star_positions_.empty()) return;
   
   int display_width = display_manager_->getWidth();
   
@@ -164,7 +160,7 @@ void MeteorAnimation::updateStars() {
 }
 
 void MeteorAnimation::drawMeteors() {
-  if (!meteor_positions_) return;
+  if (meteor_positions_.empty()) return;
   
   int display_width = display_manager_->getWidth();
   int display_height = display_manager_->getHeight();
@@ -190,7 +186,7 @@ void MeteorAnimation::drawMeteors() {
 }
 
 void MeteorAnimation::drawStars() {
-  if (!star_positions_) return;
+  if (star_positions_.empty()) return;
   
   int display_width = display_manager_->getWidth();
   int display_height = display_manager_->getHeight();
@@ -208,15 +204,7 @@ void MeteorAnimation::drawStars() {
 }
 
 void MeteorAnimation::cleanup() {
-  if (meteor_positions_) {
-    delete[] meteor_positions_;
-    meteor_positions_ = nullptr;
-  }
-  
-  if (star_positions_) {
-    delete[] star_positions_;
-    star_positions_ = nullptr;
-  }
-  
+  meteor_positions_.clear();
+  star_positions_.clear();
   initialized_ = false;
 }

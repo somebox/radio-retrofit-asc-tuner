@@ -203,8 +203,9 @@ const String MODULE_ANNOUNCEMENTS[] = {
 bool message_complete = false;
 
 // Global SignTextController instances for demonstration
-RetroText::SignTextController* modern_sign = nullptr;
-RetroText::SignTextController* retro_sign = nullptr;
+#include <memory>
+std::unique_ptr<RetroText::SignTextController> modern_sign;
+std::unique_ptr<RetroText::SignTextController> retro_sign;
 
 // Callback functions for SignTextController integration
 void render_character_callback(uint8_t character, int pixel_offset, uint8_t brightness, bool use_alt_font) {
@@ -247,7 +248,7 @@ void init_sign_controllers() {
   int char_width = display_manager->getCharacterWidth();
   Serial.printf("Creating modern sign: %d chars, %d pixels per char\n", max_chars, char_width);
   
-  modern_sign = new RetroText::SignTextController(max_chars, char_width);
+  modern_sign = std::make_unique<RetroText::SignTextController>(max_chars, char_width);
   modern_sign->setFont(RetroText::MODERN_FONT);
   modern_sign->setScrollStyle(RetroText::SMOOTH);  // Use smooth scrolling
   modern_sign->setScrollSpeed(40);  // Use slower speed like retro
@@ -265,7 +266,7 @@ void init_sign_controllers() {
   // Create retro font controller
   Serial.printf("Creating retro sign: %d chars, %d pixels per char\n", max_chars, char_width);
   
-  retro_sign = new RetroText::SignTextController(max_chars, char_width);
+  retro_sign = std::make_unique<RetroText::SignTextController>(max_chars, char_width);
   retro_sign->setFont(RetroText::ARDUBOY_FONT);
   retro_sign->setScrollStyle(RetroText::CHARACTER);
   retro_sign->setScrollSpeed(130);
@@ -280,7 +281,7 @@ void init_sign_controllers() {
 
 // Helper function to display a static message using SignTextController
 void display_static_message(String message, bool use_modern_font = true, int display_time_ms = 2000) {
-  RetroText::SignTextController* sign = use_modern_font ? modern_sign : retro_sign;
+  RetroText::SignTextController* sign = use_modern_font ? modern_sign.get() : retro_sign.get();
   
   // Save the original scroll style
   RetroText::ScrollStyle original_style = sign->getScrollStyle();
@@ -301,7 +302,7 @@ void display_static_message(String message, bool use_modern_font = true, int dis
 
 // Helper function to display a scrolling message using SignTextController
 void display_scrolling_message(String message, bool use_modern_font = true, bool smooth_scroll = true) {
-  RetroText::SignTextController* sign = use_modern_font ? modern_sign : retro_sign;
+  RetroText::SignTextController* sign = use_modern_font ? modern_sign.get() : retro_sign.get();
   
   sign->setScrollStyle(smooth_scroll ? RetroText::SMOOTH : RetroText::CHARACTER);
   sign->setMessage(message);
@@ -334,9 +335,9 @@ void smooth_scroll_story() {
   RetroText::SignTextController* active_sign = nullptr;
   
   if (current_mode == DisplayMode::RETRO) {
-    active_sign = retro_sign;
+    active_sign = retro_sign.get();
   } else if (current_mode == DisplayMode::MODERN) {
-    active_sign = modern_sign;
+    active_sign = modern_sign.get();
   }
   
   if (!active_sign) return;
@@ -384,7 +385,7 @@ void configModeCallback(WiFiManager *myWiFiManager) {
 // Display font name with button interrupt capability
 void display_font_name_interruptible(String font_name, bool use_alt_font) {
   // Use SignTextController for static display
-  RetroText::SignTextController* sign = use_alt_font ? modern_sign : retro_sign;
+  RetroText::SignTextController* sign = use_alt_font ? modern_sign.get() : retro_sign.get();
   sign->setScrollStyle(RetroText::STATIC);
   sign->setMessage(font_name);
   sign->reset();

@@ -2,6 +2,7 @@
 #define METEOR_ANIMATION_H
 
 #include <Arduino.h>
+#include <vector>
 #include "DisplayManager.h"
 
 class MeteorAnimation {
@@ -50,8 +51,8 @@ private:
   unsigned long frame_count_;
   
   // Animation data
-  float* meteor_positions_;
-  float* star_positions_;
+  std::vector<float> meteor_positions_;
+  std::vector<float> star_positions_;
   
   // Internal methods
   void initializePositions();

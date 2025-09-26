@@ -17,13 +17,7 @@ DisplayManager::DisplayManager(int num_boards, int board_width, int board_height
 {
 }
 
-DisplayManager::~DisplayManager() {
-  for (int i = 0; i < 4; i++) {
-    if (drivers_[i]) {
-      delete drivers_[i];
-    }
-  }
-}
+DisplayManager::~DisplayManager() { }
 
 bool DisplayManager::initialize() {
   Serial.println("Initializing DisplayManager...");
@@ -303,7 +297,7 @@ void DisplayManager::initializeDrivers() {
     }
     
     Serial.printf("Creating driver %d with address %d\n", i, (int)addr);
-    drivers_[i] = new IS31FL3737(addr);
+    drivers_[i] = std::make_unique<IS31FL3737>(addr);
     Serial.printf("Driver %d created successfully\n", i);
   }
   

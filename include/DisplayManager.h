@@ -3,6 +3,8 @@
 
 #include <Arduino.h>
 #include "IS31FL373x.h"
+#include <array>
+#include <memory>
 #include "BrightnessLevels.h"
 #include "I2CScan.h"
 
@@ -71,7 +73,7 @@ private:
   
   // Hardware abstraction - IS31FL373x driver integration
   static const int PIXELS_PER_BOARD = 12 * 12;  // IS31FL3737 native configuration
-  IS31FL3737* drivers_[4];  // Individual drivers for each board
+  std::array<std::unique_ptr<IS31FL3737>, 4> drivers_;  // Individual drivers for each board
 
   // Brightness management
   BrightnessLevel current_brightness_level_;
