@@ -1,0 +1,67 @@
+external_components:
+  - source:
+      type: local
+      path: ../components
+
+esphome:
+  name: retro-radio
+  friendly_name: Retro Radio Bridge
+
+esp32:
+  board: esp32dev
+  framework:
+    type: arduino
+
+logger:
+
+api:
+
+ota:
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+uart:
+  id: radio_bus
+  tx_pin: GPIO17
+  rx_pin: GPIO16
+  baud_rate: 115200
+
+radio_controller:
+  id: bridge
+
+switch:
+  - platform: template
+    name: "Radio Modern Mode"
+    turn_on_action:
+      - lambda: |-
+          id(bridge).set_mode(0);
+  - platform: template
+    name: "Radio Retro Mode"
+    turn_on_action:
+      - lambda: |-
+          id(bridge).set_mode(1);
+
+number:
+  - platform: template
+    name: "Radio Volume"
+    min_value: 0
+    max_value: 255
+    step: 1
+    set_action:
+      - lambda: |-
+          id(bridge).set_volume((uint8_t) x);
+
+text_sensor:
+  - platform: homeassistant
+    entity_id: sensor.radio_metadata
+    id: ha_metadata
+
+interval:
+  - interval: 1s
+    then:
+      - lambda: |-
+          // TODO: forward metadata to firmware/display
+
+

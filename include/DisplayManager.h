@@ -5,7 +5,6 @@
 #include "IS31FL373x.h"
 #include <array>
 #include <memory>
-#include "BrightnessLevels.h"
 #include "I2CScan.h"
 
 class DisplayManager {
@@ -49,8 +48,8 @@ public:
   void setBoardBrightness(int board_index, uint8_t brightness);
 
   // Brightness management
-  void setBrightnessLevel(BrightnessLevel level);
-  BrightnessLevel getBrightnessLevel() const { return current_brightness_level_; }
+  void setBrightnessLevel(uint8_t value);
+  uint8_t getBrightnessLevel() const { return current_brightness_level_; }
 
   // Initialization helpers
   void showTestPattern();
@@ -76,7 +75,7 @@ private:
   std::array<std::unique_ptr<IS31FL3737>, 4> drivers_;  // Individual drivers for each board
 
   // Brightness management
-  BrightnessLevel current_brightness_level_;
+  uint8_t current_brightness_level_;
   
   // Internal helper methods
   void initializeDrivers();

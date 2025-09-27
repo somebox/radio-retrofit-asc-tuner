@@ -12,14 +12,14 @@
 
 | Preset | Button | LED | Function |
 |--------|--------|-----|----------|
-| 0 | Row 0, Col 0 | SW0, CS1 | Modern Mode |
-| 1 | Row 0, Col 1 | SW0, CS2 | Retro Mode |
-| 2 | Row 0, Col 2 | SW0, CS3 | Clock Mode |
-| 3 | Row 0, Col 3 | SW0, CS4 | Animation Mode |
-| 4 | Row 0, Col 4 | SW0, CS6 | Preset 4 (skip CS5) |
-| 5 | Row 0, Col 5 | SW0, CS7 | Preset 5 |
-| 6 | Row 0, Col 6 | SW0, CS8 | Preset 6 |
-| 7 | Row 0, Col 7 | SW0, CS9 | Memory |
+| 0 | Row 0, Col 0 | SW0, CS0 | Modern Mode |
+| 1 | Row 0, Col 1 | SW0, CS1 | Retro Mode |
+| 2 | Row 0, Col 2 | SW0, CS2 | Clock Mode |
+| 3 | Row 0, Col 3 | SW0, CS3 | Animation Mode |
+| 4 | Row 0, Col 4 | SW0, CS4 | Preset 4 (skip CS5) |
+| 5 | Row 0, Col 5 | SW0, CS5 | Preset 5 |
+| 6 | Row 0, Col 6 | SW0, CS6 | Preset 6 |
+| 7 | Row 0, Col 7 | SW0, CS7 | Memory |
 
 ## Button Behavior
 - **Press**: LED lights bright (255), shows preset name and stays visible
@@ -40,12 +40,12 @@
 - **Default Mode**: Modern (preset 0) - text animation starts immediately after completion
 - **Display**: Uses Modern font for announcements, Retro font for Retro mode animations
 - **Text Alignment**: Static text is left-aligned to character boundaries
-- **State Synchronization**: PresetHandler and main loop stay synchronized for mode changes
+- **State Synchronization**: PresetManager and main loop stay synchronized for mode changes
 
 ## Preset Behavior
 - **Idempotent**: Pressing the same preset multiple times behaves consistently
 - **Mode Changes**: Happen after announcement timeout, ensuring smooth transitions
-- **State Management**: PresetHandler tracks active preset, main loop manages display mode
+- **State Management**: PresetManager tracks active preset, main loop manages display mode
 - **Announcement Control**: Announcements stay active while button held, timeout after release
 
 ## Brightness Levels (Centralized)
@@ -55,7 +55,7 @@
 - **BRIGHTNESS_INIT**: 128 (50%) during initialization
 
 ### Brightness Management
-- **DisplayManager**: Manages display brightness with `setBrightnessLevel()` and `getBrightness()`
-- **RadioHardware**: Manages preset LED brightness with `setBrightnessLevel()` using DisplayManager values
-- **PresetHandler**: Uses centralized brightness values for LED animations
+- **DisplayManager**: Manages display brightness with raw `uint8_t` levels via `setBrightnessLevel()`
+- **RadioHardware**: Applies preset LED brightness with `setGlobalBrightness()` using the same raw values
+- **PresetManager**: Uses raw brightness values for LED animations
 - **AnnouncementModule**: Uses full brightness (255) for visibility

@@ -5,12 +5,9 @@
 #include <Wire.h>
 #include <Adafruit_TCA8418.h>
 #include "IS31FL373x.h"
-#include "BrightnessLevels.h"
+#include "Events.h"
 
 // Forward declarations
-class PresetHandler;
-class DisplayManager;
-
 class RadioHardware {
 public:
   // Constructor
@@ -22,14 +19,11 @@ public:
   // Initialization
   bool initialize();
   bool verifyHardware();
-  void setPresetHandler(PresetHandler* handler);
+  void setEventBus(EventBus* bus);
   
   // Main update function
   void update();
   void scanI2C();
-
-  // Brightness integration
-  void setBrightnessLevel(BrightnessLevel level);
 
   // Progress indication during initialization
   void showProgress(int progress);  // 0-100% progress bar on preset LEDs
@@ -64,7 +58,7 @@ private:
   IS31FL3737* preset_led_driver_;
   
   // Control handlers
-  PresetHandler* preset_handler_;
+  EventBus* event_bus_;
   
   // Status flags
   bool keypad_ready_;
@@ -91,6 +85,8 @@ private:
   bool initializePresetLEDs();
   bool testI2CDevice(uint8_t address, const char* device_name);
   void mapPresetToLED(int preset_num, int& sw_pin, int& cs_pin);
+  void publishEvent(EventType type, int32_t i1 = 0, int32_t i2 = 0, const char* s = nullptr);
+  void handlePresetKeyEvent(int row, int col, bool pressed);
 };
 
 #endif // RADIO_HARDWARE_H

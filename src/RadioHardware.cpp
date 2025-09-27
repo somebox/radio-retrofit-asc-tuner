@@ -1,23 +1,22 @@
 #include "RadioHardware.h"
-#include "PresetHandler.h"
 #include <algorithm>  // For max/min functions
 #include "I2CScan.h"
 
 // Preset LED mapping according to RetroText PCB Layout - Column 4 is skipped
 const RadioHardware::PresetLEDMapping RadioHardware::PRESET_LED_MAP[NUM_PRESETS] = {
-  {0, 0},  // Preset 0: SW1, CS1 (Character 0, top-left)
-  {0, 1},  // Preset 1: SW1, CS2 (Character 0, top-center-left)  
-  {0, 2},  // Preset 2: SW1, CS3 (Character 0, top-center-right)
-  {0, 3},  // Preset 3: SW1, CS5 (Character 1, top-left) - skip CS4
-  {0, 5},  // Preset 4: SW1, CS6 (Character 1, top-center-left)
-  {0, 6},  // Preset 5: SW1, CS7 (Character 1, top-center-right)
-  {0, 7},  // Preset 6: SW1, CS8 (Character 1, top-right)
-  {0, 8}   // Memory:   SW1, CS9 (Character 2, top-left)
+  {0, 0},  // Preset 0: SW1, CS0 (top-left)
+  {0, 1},  // Preset 1: SW1, CS1
+  {0, 2},  // Preset 2: SW1, CS2
+  {0, 3},  // Preset 3: SW1, CS3
+  {0, 4},  // Preset 4: SW1, CS4
+  {0, 5},  // Preset 5: SW1, CS5
+  {0, 6},  // Preset 6: SW1, CS6
+  {0, 7}   // Memory:   SW1, CS7
 };
 
 RadioHardware::RadioHardware()
   : preset_led_driver_(nullptr)
-  , preset_handler_(nullptr)
+  , event_bus_(nullptr)
   , keypad_ready_(false)
   , preset_led_ready_(false)
   , initialized_(false)
@@ -66,13 +65,13 @@ bool RadioHardware::isInitialized() const {
   return initialized_;
 }
 
-void RadioHardware::setPresetHandler(PresetHandler* handler) {
-  preset_handler_ = handler;
+void RadioHardware::setEventBus(EventBus* bus) {
+  event_bus_ = bus;
 }
 
 void RadioHardware::update() {
   // Handle keypad events and pass to preset handler
-  if (hasKeypadEvent() && preset_handler_) {
+  if (hasKeypadEvent()) {
     int event = getKeypadEvent();
     bool pressed = event & 0x80;
     int key_number = (event & 0x7F) - 1;
@@ -81,7 +80,7 @@ void RadioHardware::update() {
 
     // Only handle preset buttons (row 0)
     if (row == 0 && isValidKeypress(key_number)) {
-      preset_handler_->handleKeypadEvent(row, col, pressed);
+      handlePresetKeyEvent(row, col, pressed);
     }
   }
 }
@@ -267,7 +266,6 @@ void RadioHardware::testKeypadButtons() {
         }
       }
     }
-    delay(10);
   }
   
   Serial.printf("Keypad test complete - detected %d button presses\n", button_presses);
@@ -360,16 +358,6 @@ bool RadioHardware::isValidKeypress(int key_number) const {
   return (row >= 0 && row < KEYPAD_ROWS && col >= 0 && col < KEYPAD_COLS);
 }
 
-void RadioHardware::setBrightnessLevel(BrightnessLevel level) {
-  if (preset_led_driver_ && preset_led_ready_) {
-    uint8_t brightness = getBrightnessValue(level);
-    preset_led_driver_->setGlobalCurrent(brightness);
-    Serial.printf("Preset LED brightness level: %d%% (%d)\n", static_cast<int>(level) * 5, brightness);
-  } else {
-    Serial.printf("WARNING: Cannot set brightness - preset LED driver not ready\n");
-  }
-}
-
 void RadioHardware::showProgress(int progress) {
   if (!preset_led_driver_ || !preset_led_ready_) return;
 
@@ -384,11 +372,33 @@ void RadioHardware::showProgress(int progress) {
 
   // Light up LEDs from left to right based on progress
   for (int i = 0; i < 8 && i < active_leds; i++) {
-    setLED(0, i, getBrightnessValue(BRIGHTNESS_100_PERCENT));  // Row 0, columns 0-7
+    setLED(0, i, 255);  // Row 0, columns 0-7
   }
 
   // Update the display immediately
   updatePresetLEDs();
 
   Serial.printf("Progress bar: %d%% (%d/8 LEDs lit)\n", progress, active_leds);
+}
+
+void RadioHardware::publishEvent(EventType type, int32_t i1, int32_t i2, const char* s) {
+  if (!event_bus_) {
+    return;
+  }
+
+  Event evt;
+  evt.type = type;
+#ifdef ARDUINO
+  evt.timestamp = millis();
+#else
+  evt.timestamp = 0;
+#endif
+  evt.i1 = i1;
+  evt.i2 = i2;
+  evt.s = s;
+  event_bus_->publish(evt);
+}
+
+void RadioHardware::handlePresetKeyEvent(int row, int col, bool pressed) {
+  publishEvent(pressed ? EventType::PresetPressed : EventType::PresetReleased, col, row);
 }

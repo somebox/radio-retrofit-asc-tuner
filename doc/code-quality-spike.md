@@ -1,12 +1,12 @@
 ### Next steps (short)
 
-1) Implement EventBus (`include/Events.h`) and wire: publish from `RadioHardware` (presets, encoder), consume in `PresetManager` and `AnnouncementModule`.
-2) Add simplified `PresetManager`: 0–8 buttons, table-driven actions per context, LED updates, and menu entry/exit behavior.
-3) Extend `BrightnessLevels.h` with named levels and add event-driven global brightness handling in `DisplayManager` (via `setGlobalCurrent`).
+1) **Done** – Implemented `EventBus` (`include/Events.h`) and rewired `RadioHardware` preset events to publish/subscribe with `PresetManager` and `AnnouncementModule`.
+2) **Done** – Replaced legacy `PresetHandler` with a table-driven `PresetManager` handling buttons 0–8, LED updates, and menu entry/exit scaffolding.
+3) **Done** – Simplified brightness handling to raw driver values with shared helpers in `DisplayManager`/`RadioHardware`; brightness events flow through PresetManager actions.
 4) Introduce `IFont4x6` and `DisplayManager::drawGlyph4x6`; adapt retro/modern fonts via adapters (no formatting parser yet).
 5) Scaffold `MenuModule` (enter via encoder or hold preset; save/exit via Memory), define menu table structure, and persist to EEPROM/NVS.
 6) Add VU APIs (`setVuLevels`, `setVuBrightness`) and emit `VuLevelUpdate` events; defer IR feature.
-7) Draft ESPHome external-component mapping after refactor (events/state → HA).
+7) Draft ESPHome external-component mapping after refactor (events/state → HA) and prototype local component structure.
 
 ---
 
@@ -45,7 +45,7 @@
   - MAX = 255
 - Global brightness: a single system-wide level applied to both the display and preset LEDs (already coordinated via `DisplayManager` and `RadioHardware`). This is implemented via `driver->setGlobalCurrent(brightness)` so no scaling is needed.
 - Implementation notes:
-  - Extend `BrightnessLevels.h` to expose these named levels and a mapping function.
+  - Use shared helpers to convert percentages to raw brightness when needed.
   - Remove set-based UI, but instead track global brightness level in `DisplayManager`, and provide a way to adjust it via events.
 
 #### Font handling (multiple fonts, fixed 4x6 glyphs)
@@ -78,7 +78,7 @@
 
 #### Event pub/sub (decouple modules)
 
-- Goal: decouple `PresetHandler`, `AnnouncementModule`, `RadioHardware`, and display modules via a simple event bus.
+- Goal: decouple `PresetManager`, `AnnouncementModule`, `RadioHardware`, and display modules via a simple event bus.
 - Core types (sketch in `include/Events.h`):
   - `enum class EventType : uint8_t { PresetPressed, PresetReleased, ModeChanged, BrightnessChanged, AnnouncementRequested, VolumeChanged, Alarm, ... }`
   - `struct Event { EventType type; uint32_t t; int32_t i1; int32_t i2; const char* s; };`  // small fixed payload
@@ -86,12 +86,12 @@
   - `class EventBus { subscribe(EventType, EventCallback); publish(const Event&); }`
 - Flow example:
   - Keypress → `RadioHardware` publishes `PresetPressed{index}`.
-  - `PresetHandler` consumes, updates state, publishes `ModeChanged{mode}` and optionally `AnnouncementRequested{"Modern"}`.
+  - `PresetManager` consumes, updates state, publishes `ModeChanged{mode}` and optionally `AnnouncementRequested{"Modern"}`.
   - `AnnouncementModule` consumes `AnnouncementRequested`, displays text and notifies when done (optional event).
   - Display modules (`ClockDisplay`, `MeteorAnimation`) listen for `ModeChanged` and take control when announcements are idle.
 - Implementation notes:
   - Keep bus lightweight (fixed-size subscriber table per event type, no dynamic allocation in ISR contexts).
-  - `RadioHardware` remains a publisher for input events; it no longer needs to call `PresetHandler` directly.
+  - `RadioHardware` remains a publisher for input events; it no longer needs to call `PresetManager` directly.
 
 ---
 

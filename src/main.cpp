@@ -16,16 +16,13 @@
 #include "ClockDisplay.h"
 #include "MeteorAnimation.h"
 #include "RadioHardware.h"
-#include "PresetHandler.h"
+#include "PresetManager.h"
 #include "AnnouncementModule.h"
-#include "BrightnessLevels.h"
+#include "Events.h"
 
 // Alternative font system
 #define FONT_WIDTH 4
 #define FONT_HEIGHT 6  // Back to 6 rows with adaptive character shifting
-
-// Brightness levels are now managed by DisplayManager
-// Use DisplayManager::BrightnessLevel enum values instead
 
 #include "DisplayMode.h"
 
@@ -54,11 +51,11 @@ DisplayManager* display_manager = nullptr;
 ClockDisplay* clock_display = nullptr;
 MeteorAnimation* meteor_animation = nullptr;
 RadioHardware* radio_hardware = nullptr;
-PresetHandler* preset_handler = nullptr;
+PresetManager* preset_manager = nullptr;
 AnnouncementModule* announcement_module = nullptr;
 
 // Global brightness level management
-BrightnessLevel global_brightness = DEFAULT_BRIGHTNESS;
+uint8_t global_brightness = 128;
 
 // Forward declarations
 void configModeCallback(WiFiManager *myWiFiManager);
@@ -447,45 +444,34 @@ bool check_button_press() {
 // Global brightness control functions
 void adjustGlobalBrightness(bool increase) {
   // Calculate new brightness level
-  BrightnessLevel new_level;
-
-  if (increase) {
-    // Increase by one step (5%)
-    int current_index = static_cast<int>(global_brightness);
-    if (current_index < BRIGHTNESS_STEPS - 1) {
-      new_level = static_cast<BrightnessLevel>(current_index + 1);
-    } else {
-      new_level = BRIGHTNESS_0_PERCENT;  // Wrap around to 0%
-    }
-  } else {
-    // Decrease by one step (5%)
-    int current_index = static_cast<int>(global_brightness);
-    if (current_index > 0) {
-      new_level = static_cast<BrightnessLevel>(current_index - 1);
-    } else {
-      new_level = static_cast<BrightnessLevel>(BRIGHTNESS_STEPS - 1);  // Wrap around to 100%
-    }
+  int delta = increase ? 16 : -16;
+  int value = static_cast<int>(global_brightness) + delta;
+  if (value < 0) {
+    value = 255;
+  } else if (value > 255) {
+    value = 0;
   }
-
-  global_brightness = new_level;
+  global_brightness = static_cast<uint8_t>(value);
 
   // Update both display and preset LED brightness
   if (display_manager) {
     display_manager->setBrightnessLevel(global_brightness);
   }
   if (radio_hardware && radio_hardware->isInitialized()) {
-    radio_hardware->setBrightnessLevel(global_brightness);
+    radio_hardware->setGlobalBrightness(global_brightness);
   }
 
   Serial.printf("Global brightness adjusted to: %d%% (%d)\n",
-                static_cast<int>(global_brightness) * 5,
-                getBrightnessValue(global_brightness));
+                (global_brightness * 100) / 255,
+                global_brightness);
 }
 
 void showBrightnessAnnouncement() {
   if (!announcement_module) return;
 
-  String brightness_text = "Brightness: " + getBrightnessPercentage(global_brightness);
+  char buffer[32];
+  snprintf(buffer, sizeof(buffer), "Brightness: %d%%", (global_brightness * 100) / 255);
+  String brightness_text = buffer;
   announcement_module->show(brightness_text, 1500);  // Show for 1.5 seconds
   Serial.printf("Brightness announcement: %s\n", brightness_text.c_str());
 }
@@ -542,11 +528,9 @@ void setup() {
   // Print display configuration and connection info
   display_manager->printDisplayConfiguration();
   
-  // Set display brightness to default level (50%)
-  display_manager->setBrightnessLevel(DEFAULT_BRIGHTNESS);
-
   // Initialize global brightness to default level
-  global_brightness = DEFAULT_BRIGHTNESS;
+  global_brightness = 128;
+  display_manager->setBrightnessLevel(global_brightness);
 
   // Verify each driver individually with proper error handling
   if (!display_manager->verifyDrivers()) {
@@ -569,6 +553,7 @@ void setup() {
   // Initialize Radio Hardware (keypad and preset LEDs)
   Serial.println("Initializing RadioHardware...");
   radio_hardware = new RadioHardware();
+  radio_hardware->setEventBus(&eventBus());
   if (!radio_hardware->initialize()) {
     Serial.println("WARNING: RadioHardware initialization had issues - check connections");
   } else {
@@ -576,24 +561,21 @@ void setup() {
 
     // Set preset LED brightness to default level (only if initialization succeeded)
     if (radio_hardware) {
-      radio_hardware->setBrightnessLevel(global_brightness);
+      radio_hardware->setGlobalBrightness(global_brightness);
     }
 
     // Initialize AnnouncementModule
     Serial.println("Initializing AnnouncementModule...");
     announcement_module = new AnnouncementModule(display_manager);
 
-    // Initialize PresetHandler
-    Serial.println("Initializing PresetHandler...");
-    preset_handler = new PresetHandler(radio_hardware, announcement_module);
-    if (!preset_handler->initialize()) {
-      Serial.println("WARNING: PresetHandler initialization failed");
+    // Initialize PresetManager
+    Serial.println("Initializing PresetManager...");
+    preset_manager = new PresetManager(radio_hardware, announcement_module);
+    if (!preset_manager->initialize()) {
+      Serial.println("WARNING: PresetManager initialization failed");
     } else {
-      Serial.println("PresetHandler initialized successfully");
+      Serial.println("PresetManager initialized successfully");
     }
-
-    // Connect PresetHandler to RadioHardware
-    radio_hardware->setPresetHandler(preset_handler);
   }
   
   // Initialize messages
@@ -721,19 +703,19 @@ void loop()
   }
 
   // Check for mode changes from initialization or preset buttons
-  if (preset_handler && preset_handler->hasModeChanged()) {
-    current_mode = preset_handler->getSelectedMode();
+  if (preset_manager && preset_manager->hasModeChanged()) {
+    current_mode = preset_manager->getSelectedMode();
     Serial.printf("Mode: %s\n", mode_names[static_cast<uint8_t>(current_mode)]);
 
     // Select a new random message when mode changes
     select_random_message();
 
-    preset_handler->clearModeChanged();
+    preset_manager->clearModeChanged();
   }
 
   // Update all modules
-  if (preset_handler) {
-    preset_handler->update();
+  if (preset_manager) {
+    preset_manager->update();
   }
 
   if (announcement_module) {

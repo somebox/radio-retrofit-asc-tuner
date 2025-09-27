@@ -2,7 +2,6 @@
 #include <Wire.h>
 #include <fonts/retro_font4x6.h>
 #include <fonts/modern_font4x6.h>
-#include "BrightnessLevels.h"
 
 DisplayManager::DisplayManager(int num_boards, int board_width, int board_height)
   : num_boards_(num_boards)
@@ -13,7 +12,7 @@ DisplayManager::DisplayManager(int num_boards, int board_width, int board_height
   , character_width_(4)
   , max_characters_(total_width_ / character_width_)
   , drivers_{nullptr, nullptr, nullptr, nullptr}
-  , current_brightness_level_(DEFAULT_BRIGHTNESS)
+  , current_brightness_level_(128)
 {
 }
 
@@ -437,11 +436,10 @@ void DisplayManager::displayStaticText(const String& text, bool use_alt_font) {
 }
 
 // Brightness management
-void DisplayManager::setBrightnessLevel(BrightnessLevel level) {
-  current_brightness_level_ = level;
-  uint8_t brightness_value = getBrightnessValue(level);
-  setGlobalBrightness(brightness_value);
-  Serial.printf("Display brightness level: %d%% (%d)\n", static_cast<int>(level) * 5, brightness_value);
+void DisplayManager::setBrightnessLevel(uint8_t value) {
+  current_brightness_level_ = value;
+  setGlobalBrightness(value);
+  Serial.printf("Display brightness level set to %d\n", value);
 }
 
 // Initialization helpers
@@ -452,7 +450,7 @@ void DisplayManager::showTestPattern() {
   // Create a simple test pattern - checkerboard
   for (int x = 0; x < total_width_; x++) {
     for (int y = 0; y < total_height_; y++) {
-      uint8_t brightness = ((x + y) % 2) == 0 ? getBrightnessValue(BRIGHTNESS_75_PERCENT) : getBrightnessValue(BRIGHTNESS_25_PERCENT);  // Alternating bright/dim
+      uint8_t brightness = ((x + y) % 2) == 0 ? 180 : 50;  // Alternating bright/dim
       setPixel(x, y, brightness);
     }
   }
