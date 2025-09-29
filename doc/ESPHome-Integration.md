@@ -31,6 +31,7 @@ The unified event bus and JSON payload conventions are defined in `Event-System.
    - C++ component extends `Component` and `uart::UARTDevice` (if UART debugging is desired) but primarily uses ESPHome API to forward JSON events.
 4. **Device YAML (`esphome/devices/radio.yaml`)**
    - Defines WiFi/API/OTA, entities, and automations that map HA UI to the event catalog.
+   - Basic configuration includes essential entities for testing; see Configuration Options below for advanced features.
 
 ---
 
@@ -132,3 +133,107 @@ With the integration foundation complete, the next priorities are:
 - **Enhanced Entities**: Additional sensors and diagnostic information
 
 This architecture successfully keeps firmware authoritative while enabling ESPHome/HA to orchestrate higher-level automation through the shared event catalog.
+
+---
+
+## Configuration Options
+
+The basic `radio.yaml` provides essential entities for testing. Additional features can be added as needed:
+
+### Enhanced State Synchronization
+
+For automatic bidirectional sync between firmware and Home Assistant entities, add entity registration in `on_boot`:
+
+```yaml
+esphome:
+  on_boot:
+    then:
+      - lambda: |-
+          // Register entities with bridge for automatic updates
+          id(bridge).set_mode_select(id(radio_mode_select));
+          id(bridge).set_volume_number(id(radio_volume));
+          id(bridge).set_metadata_text_sensor(id(radio_metadata));
+```
+
+### Additional Controls
+
+```yaml
+number:
+  - platform: template
+    name: "Radio Brightness"
+    id: radio_brightness
+    min_value: 0
+    max_value: 255
+    step: 1
+    initial_value: 128
+    set_action:
+      - lambda: id(bridge).send_brightness_command((int) x);
+
+switch:
+  - platform: template
+    name: "Preset 2 – Classical"
+    id: preset_2_classical
+    turn_on_action:
+      - lambda: id(bridge).send_mode_command(0, "radio", 2);
+      - delay: 500ms
+      - switch.turn_off: preset_2_classical
+
+  - platform: template
+    name: "Preset 3 – Rock"
+    id: preset_3_rock
+    turn_on_action:
+      - lambda: id(bridge).send_mode_command(0, "radio", 3);
+      - delay: 500ms
+      - switch.turn_off: preset_3_rock
+```
+
+### Additional Status Sensors
+
+```yaml
+text_sensor:
+  - platform: template
+    name: "Radio Current Mode"
+    id: radio_current_mode
+    icon: "mdi:radio"
+
+sensor:
+  - platform: template
+    name: "Radio Current Brightness"
+    id: radio_current_brightness
+    icon: "mdi:brightness-6"
+```
+
+### Manual State Polling (Alternative to Automatic Sync)
+
+If not using automatic entity registration, add manual polling:
+
+```yaml
+interval:
+  - interval: 100ms
+    then:
+      - lambda: |-
+          // Manual state updates
+          static int last_volume = -1;
+          int current_volume = id(bridge).get_volume();
+          if (current_volume != last_volume) {
+            last_volume = current_volume;
+            id(radio_current_volume).publish_state(current_volume);
+            auto call = id(radio_volume).make_call();
+            call.set_value(current_volume);
+            call.perform();
+          }
+```
+
+### Hardware Configuration
+
+For different ESP32 boards or pin configurations:
+
+```yaml
+esp32:
+  board: esp32dev  # or esp32-s3-devkitc-1, etc.
+
+uart:
+  tx_pin: GPIO17  # Adjust for your hardware
+  rx_pin: GPIO16
+  baud_rate: 115200
+```

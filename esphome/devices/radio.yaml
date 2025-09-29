@@ -29,60 +29,22 @@ uart:
   rx_pin: GPIO16
   baud_rate: 115200
 
+# Radio controller component - handles all state synchronization
 radio_controller:
   id: bridge
   uart_id: radio_bus
 
-# Expose radio mode as a select entity
+# Basic mode selection
 select:
   - platform: template
     name: "Radio Mode"
     id: radio_mode_select
-    options:
-      - "radio"
-      - "playlist"
-      - "clock"
-      - "animation"
+    options: ["radio", "playlist", "clock", "animation"]
     initial_option: "radio"
     set_action:
       - lambda: |-
-          // Map mode names to numeric values
-          int mode = 0;
-          if (x == "radio") mode = 0;
-          else if (x == "playlist") mode = 1;
-          else if (x == "clock") mode = 2;
-          else if (x == "animation") mode = 3;
-          
+          int mode = (x == "radio") ? 0 : (x == "playlist") ? 1 : (x == "clock") ? 2 : 3;
           id(bridge).send_mode_command(mode, x);
-
-# Preset switches for quick station selection
-switch:
-  - platform: template
-    name: "Preset 1 – Jazz"
-    id: preset_1_switch
-    turn_on_action:
-      - lambda: |-
-          id(bridge).send_mode_command(0, "radio", 1);
-      - delay: 1s
-      - switch.turn_off: preset_1_switch
-
-  - platform: template
-    name: "Preset 2 – Classical"
-    id: preset_2_switch
-    turn_on_action:
-      - lambda: |-
-          id(bridge).send_mode_command(0, "radio", 2);
-      - delay: 1s
-      - switch.turn_off: preset_2_switch
-
-  - platform: template
-    name: "Preset 3 – Rock"
-    id: preset_3_switch
-    turn_on_action:
-      - lambda: |-
-          id(bridge).send_mode_command(0, "radio", 3);
-      - delay: 1s
-      - switch.turn_off: preset_3_switch
 
 # Volume control
 number:
@@ -94,99 +56,28 @@ number:
     step: 1
     initial_value: 128
     set_action:
-      - lambda: |-
-          id(bridge).send_volume_command((int) x);
+      - lambda: id(bridge).send_volume_command((int) x);
 
+# Basic preset switch for testing
+switch:
   - platform: template
-    name: "Radio Brightness"
-    id: radio_brightness
-    min_value: 0
-    max_value: 255
-    step: 1
-    initial_value: 128
-    set_action:
-      - lambda: |-
-          id(bridge).send_brightness_command((int) x);
+    name: "Preset 1 – Jazz"
+    id: preset_1_jazz
+    turn_on_action:
+      - lambda: id(bridge).send_mode_command(0, "radio", 1);
+      - delay: 500ms
+      - switch.turn_off: preset_1_jazz
 
-# Display current metadata/announcements
+# Display current metadata
 text_sensor:
   - platform: template
     name: "Radio Metadata"
     id: radio_metadata
     icon: "mdi:music-note"
 
-  - platform: template
-    name: "Radio Current Mode"
-    id: radio_current_mode
-    icon: "mdi:radio"
-
-# Sensors for current state
+# Current state sensors
 sensor:
   - platform: template
     name: "Radio Current Volume"
     id: radio_current_volume
-    unit_of_measurement: ""
     icon: "mdi:volume-high"
-
-  - platform: template
-    name: "Radio Current Brightness"
-    id: radio_current_brightness
-    unit_of_measurement: ""
-    icon: "mdi:brightness-6"
-
-# Handle events from radio firmware
-interval:
-  - interval: 100ms
-    then:
-      # Update entities based on radio state
-      - lambda: |-
-          static int last_mode = -1;
-          static int last_volume = -1;
-          static int last_brightness = -1;
-          static std::string last_metadata = "";
-          static std::string last_mode_name = "";
-          
-          // Update mode select when radio changes mode
-          int current_mode = id(bridge).get_current_mode();
-          std::string mode_name = id(bridge).get_mode_name();
-          if (current_mode != last_mode || mode_name != last_mode_name) {
-            last_mode = current_mode;
-            last_mode_name = mode_name;
-            
-            if (!mode_name.empty()) {
-              auto call = id(radio_mode_select).make_call();
-              call.set_option(mode_name);
-              call.perform();
-            }
-            
-            id(radio_current_mode).publish_state(mode_name);
-          }
-          
-          // Update volume sensor
-          int current_volume = id(bridge).get_volume();
-          if (current_volume != last_volume) {
-            last_volume = current_volume;
-            id(radio_current_volume).publish_state(current_volume);
-            
-            auto call = id(radio_volume).make_call();
-            call.set_value(current_volume);
-            call.perform();
-          }
-          
-          // Update brightness sensor
-          int current_brightness = id(bridge).get_brightness();
-          if (current_brightness != last_brightness) {
-            last_brightness = current_brightness;
-            id(radio_current_brightness).publish_state(current_brightness);
-            
-            auto call = id(radio_brightness).make_call();
-            call.set_value(current_brightness);
-            call.perform();
-          }
-          
-          // Update metadata
-          std::string current_metadata = id(bridge).get_metadata();
-          if (current_metadata != last_metadata) {
-            last_metadata = current_metadata;
-            id(radio_metadata).publish_state(current_metadata);
-          }
