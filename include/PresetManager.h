@@ -104,8 +104,8 @@ private:
   static constexpr unsigned long FADE_DURATION = 300;
   static constexpr unsigned long LONG_PRESS_THRESHOLD = 600;  // ms
 
-  static void handlePresetPressedEvent(const Event& event, void* context);
-  static void handlePresetReleasedEvent(const Event& event, void* context);
+  static void handlePresetPressedEvent(const events::Event& event, void* context);
+  static void handlePresetReleasedEvent(const events::Event& event, void* context);
 };
 
 

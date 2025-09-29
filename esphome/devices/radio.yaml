@@ -30,18 +30,26 @@ uart:
 
 radio_controller:
   id: bridge
+  uart_id: radio_bus
+
+select:
+  - platform: template
+    name: "Radio Mode"
+    options:
+      - "radio"
+      - "playlist"
+      - "clock"
+      - "animation"
+    set_action:
+      - lambda: |-
+          id(bridge).set_mode_from_name(x.c_str());
 
 switch:
   - platform: template
-    name: "Radio Modern Mode"
+    name: "Preset 1 – Jazz"
     turn_on_action:
       - lambda: |-
-          id(bridge).set_mode(0);
-  - platform: template
-    name: "Radio Retro Mode"
-    turn_on_action:
-      - lambda: |-
-          id(bridge).set_mode(1);
+          id(bridge).set_mode_with_preset("radio", 1);
 
 number:
   - platform: template

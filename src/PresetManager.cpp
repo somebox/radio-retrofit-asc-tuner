@@ -1,8 +1,21 @@
 #include "PresetManager.h"
-#include "RadioHardware.h"
 #include "AnnouncementModule.h"
+#include "RadioHardware.h"
+#include "events/JsonHelpers.h"
 
 namespace {
+
+// Simple JSON field parsing (shared with HomeAssistantBridge)
+int parseIntField(const String& line, const char* key, int fallback) {
+  String pattern = String("\"") + key + "\":";
+  int idx = line.indexOf(pattern);
+  if (idx == -1) return fallback;
+  int start = idx + pattern.length();
+  int end = line.indexOf(',', start);
+  if (end == -1) end = line.indexOf('}', start);
+  if (end == -1) return fallback;
+  return line.substring(start, end).toInt();
+}
 
 constexpr uint8_t buttonToIndex(int row, int col) {
   return static_cast<uint8_t>(row == 0 ? col : 0xFF);
@@ -221,30 +234,33 @@ void PresetManager::applyAction(int button_index, const PresetButtonBinding& bin
       extern void showBrightnessAnnouncement();
       adjustGlobalBrightness(binding.value > 0);
       showBrightnessAnnouncement();
-      Event evt;
-      evt.type = EventType::BrightnessChanged;
+      events::Event evt(EventType::BrightnessChanged);
       evt.timestamp = millis();
-      evt.i1 = static_cast<int32_t>(binding.value);
+      evt.value = events::json::object({
+          events::json::number_field("value", binding.value),
+      });
       eventBus().publish(evt);
       break;
     }
     case PresetAction::EnterMenu: {
       if (long_press) {
         enterMenu();
-        Event evt;
-        evt.type = EventType::ModeChanged;
+        events::Event evt(EventType::ModeChanged);
         evt.timestamp = millis();
-        evt.i1 = static_cast<int32_t>(context_);
+        evt.value = events::json::object({
+            events::json::string_field("value", std::to_string(static_cast<int>(context_))),
+        });
         eventBus().publish(evt);
       }
       break;
     }
     case PresetAction::ExitMenuSave: {
       exitMenu(true);
-      Event evt;
-      evt.type = EventType::ModeChanged;
+      events::Event evt(EventType::ModeChanged);
       evt.timestamp = millis();
-      evt.i1 = static_cast<int32_t>(context_);
+      evt.value = events::json::object({
+          events::json::string_field("value", std::to_string(static_cast<int>(context_))),
+      });
       eventBus().publish(evt);
       break;
     }
@@ -324,22 +340,34 @@ void PresetManager::announce(const char* text, unsigned long duration_ms) {
   announcement_module_->show(String(text), duration_ms);
 }
 
-void PresetManager::handlePresetPressedEvent(const Event& event, void* context) {
+void PresetManager::handlePresetPressedEvent(const events::Event& event, void* context) {
   if (!context) {
     return;
   }
 
   auto* self = static_cast<PresetManager*>(context);
-  self->handlePresetEvent(EventType::PresetPressed, static_cast<int>(event.i2), static_cast<int>(event.i1));
+  
+  // Parse JSON payload: {"value":col,"aux":row}
+  String json_str = String(event.value.c_str());
+  int col = parseIntField(json_str, "value", -1);
+  int row = parseIntField(json_str, "aux", 0);
+  
+  self->handlePresetEvent(EventType::PresetPressed, row, col);
 }
 
-void PresetManager::handlePresetReleasedEvent(const Event& event, void* context) {
+void PresetManager::handlePresetReleasedEvent(const events::Event& event, void* context) {
   if (!context) {
     return;
   }
 
   auto* self = static_cast<PresetManager*>(context);
-  self->handlePresetEvent(EventType::PresetReleased, static_cast<int>(event.i2), static_cast<int>(event.i1));
+  
+  // Parse JSON payload: {"value":col,"aux":row}
+  String json_str = String(event.value.c_str());
+  int col = parseIntField(json_str, "value", -1);
+  int row = parseIntField(json_str, "aux", 0);
+  
+  self->handlePresetEvent(EventType::PresetReleased, row, col);
 }
 
 

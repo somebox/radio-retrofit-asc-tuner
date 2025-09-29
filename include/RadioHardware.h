@@ -8,6 +8,10 @@
 #include "Events.h"
 
 // Forward declarations
+class IHomeAssistantBridge;
+class IHomeAssistantCommandHandler;
+
+// Forward declarations
 class RadioHardware {
 public:
   // Constructor
@@ -20,10 +24,16 @@ public:
   bool initialize();
   bool verifyHardware();
   void setEventBus(EventBus* bus);
+  void setBridge(IHomeAssistantBridge* bridge);
   
   // Main update function
   void update();
   void scanI2C();
+  void handleBridgeSetMode(int mode, const char* mode_name, int preset);
+  void handleBridgeSetVolume(int volume);
+  void handleBridgeSetBrightness(int value);
+  void handleBridgeSetMetadata(const char* text);
+  void handleBridgeStatusRequest();
 
   // Progress indication during initialization
   void showProgress(int progress);  // 0-100% progress bar on preset LEDs
@@ -53,12 +63,15 @@ public:
   bool isPresetLEDReady() const { return preset_led_ready_; }
   
 private:
+  friend class RadioBridgeHandlerImpl;
+
   // Hardware instances
   Adafruit_TCA8418 keypad_;
   IS31FL3737* preset_led_driver_;
   
   // Control handlers
   EventBus* event_bus_;
+  IHomeAssistantBridge* bridge_;
   
   // Status flags
   bool keypad_ready_;
@@ -85,7 +98,6 @@ private:
   bool initializePresetLEDs();
   bool testI2CDevice(uint8_t address, const char* device_name);
   void mapPresetToLED(int preset_num, int& sw_pin, int& cs_pin);
-  void publishEvent(EventType type, int32_t i1 = 0, int32_t i2 = 0, const char* s = nullptr);
   void handlePresetKeyEvent(int row, int col, bool pressed);
 };
 

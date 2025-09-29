@@ -1,22 +1,47 @@
 #include "RadioHardware.h"
+#include "HomeAssistantBridge.h"
+#include "PresetManager.h"
 #include <algorithm>  // For max/min functions
+#include <string>
 #include "I2CScan.h"
+#include "events/JsonHelpers.h"
 
-// Preset LED mapping according to RetroText PCB Layout - Column 4 is skipped
-const RadioHardware::PresetLEDMapping RadioHardware::PRESET_LED_MAP[NUM_PRESETS] = {
-  {0, 0},  // Preset 0: SW1, CS0 (top-left)
-  {0, 1},  // Preset 1: SW1, CS1
-  {0, 2},  // Preset 2: SW1, CS2
-  {0, 3},  // Preset 3: SW1, CS3
-  {0, 4},  // Preset 4: SW1, CS4
-  {0, 5},  // Preset 5: SW1, CS5
-  {0, 6},  // Preset 6: SW1, CS6
-  {0, 7}   // Memory:   SW1, CS7
+namespace {
+class RadioBridgeHandlerImpl : public IHomeAssistantCommandHandler {
+ public:
+  explicit RadioBridgeHandlerImpl(RadioHardware* hardware) : hardware_(hardware) {}
+
+  void onSetMode(int mode, const String& mode_name, int preset) override {
+    hardware_->handleBridgeSetMode(mode, mode_name.c_str(), preset);
+  }
+
+  void onSetVolume(int volume) override {
+    hardware_->handleBridgeSetVolume(volume);
+  }
+
+  void onSetBrightness(int value) override {
+    hardware_->handleBridgeSetBrightness(value);
+  }
+
+  void onSetMetadata(const String& text) override {
+    hardware_->handleBridgeSetMetadata(text.c_str());
+  }
+
+  void onRequestStatus() override {
+    hardware_->handleBridgeStatusRequest();
+  }
+
+ private:
+  RadioHardware* hardware_;
 };
+}
+
+static RadioBridgeHandlerImpl bridge_handler(nullptr);
 
 RadioHardware::RadioHardware()
   : preset_led_driver_(nullptr)
   , event_bus_(nullptr)
+  , bridge_(nullptr)
   , keypad_ready_(false)
   , preset_led_ready_(false)
   , initialized_(false)
@@ -67,6 +92,14 @@ bool RadioHardware::isInitialized() const {
 
 void RadioHardware::setEventBus(EventBus* bus) {
   event_bus_ = bus;
+}
+
+void RadioHardware::setBridge(IHomeAssistantBridge* bridge) {
+  bridge_ = bridge;
+  if (bridge_) {
+    bridge_handler = RadioBridgeHandlerImpl(this);
+    bridge_->setHandler(&bridge_handler);
+  }
 }
 
 void RadioHardware::update() {
@@ -381,24 +414,69 @@ void RadioHardware::showProgress(int progress) {
   Serial.printf("Progress bar: %d%% (%d/8 LEDs lit)\n", progress, active_leds);
 }
 
-void RadioHardware::publishEvent(EventType type, int32_t i1, int32_t i2, const char* s) {
+
+void RadioHardware::handlePresetKeyEvent(int row, int col, bool pressed) {
   if (!event_bus_) {
     return;
   }
 
-  Event evt;
-  evt.type = type;
+  events::Event evt(pressed ? EventType::PresetPressed : EventType::PresetReleased);
 #ifdef ARDUINO
   evt.timestamp = millis();
 #else
   evt.timestamp = 0;
 #endif
-  evt.i1 = i1;
-  evt.i2 = i2;
-  evt.s = s;
+  evt.value = events::json::object({
+      events::json::number_field("value", col),
+      events::json::number_field("aux", row, row != 0),
+  });
   event_bus_->publish(evt);
 }
 
-void RadioHardware::handlePresetKeyEvent(int row, int col, bool pressed) {
-  publishEvent(pressed ? EventType::PresetPressed : EventType::PresetReleased, col, row);
+void RadioHardware::handleBridgeSetMode(int mode, const char* mode_name, int preset) {
+  if (!event_bus_) return;
+  events::Event evt(EventType::ModeChanged);
+  evt.timestamp = millis();
+  evt.value = events::json::object({
+      events::json::number_field("value", mode),
+      events::json::string_field("name", mode_name, mode_name && mode_name[0]),
+      events::json::number_field("preset", preset, preset >= 0),
+  });
+  event_bus_->publish(evt);
+}
+
+void RadioHardware::handleBridgeSetVolume(int volume) {
+  events::Event evt(EventType::VolumeChanged);
+  evt.timestamp = millis();
+  evt.value = events::json::object({
+      events::json::number_field("value", volume),
+  });
+  if (event_bus_) {
+    event_bus_->publish(evt);
+  }
+}
+
+void RadioHardware::handleBridgeSetBrightness(int value) {
+  setGlobalBrightness(static_cast<uint8_t>(value));
+}
+
+void RadioHardware::handleBridgeSetMetadata(const char* text) {
+  events::Event evt(EventType::AnnouncementRequested);
+  evt.timestamp = millis();
+  evt.value = events::json::object({
+      events::json::string_field("text", text, text && text[0]),
+  });
+  if (event_bus_) {
+    event_bus_->publish(evt);
+  }
+}
+
+void RadioHardware::handleBridgeStatusRequest() {
+  if (!bridge_) return;
+  events::Event evt(EventType::ModeChanged);
+  evt.timestamp = millis();
+  evt.value = events::json::object({
+      events::json::number_field("value", 0),
+  });
+  bridge_->publishEvent(evt);
 }

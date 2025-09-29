@@ -19,6 +19,7 @@
 #include "PresetManager.h"
 #include "AnnouncementModule.h"
 #include "Events.h"
+#include "HomeAssistantBridge.h"
 
 // Alternative font system
 #define FONT_WIDTH 4
@@ -53,6 +54,7 @@ MeteorAnimation* meteor_animation = nullptr;
 RadioHardware* radio_hardware = nullptr;
 PresetManager* preset_manager = nullptr;
 AnnouncementModule* announcement_module = nullptr;
+IHomeAssistantBridge* home_assistant_bridge = nullptr;
 
 // Global brightness level management
 uint8_t global_brightness = 128;
@@ -550,10 +552,17 @@ void setup() {
   meteor_animation = new MeteorAnimation(display_manager);
   meteor_animation->initialize();
   
+  // Initialize Home Assistant Bridge (stub mode for demo)
+  Serial.println("Initializing HomeAssistant Bridge...");
+  home_assistant_bridge = new HomeAssistantBridge();
+  home_assistant_bridge->begin();
+
   // Initialize Radio Hardware (keypad and preset LEDs)
   Serial.println("Initializing RadioHardware...");
+
   radio_hardware = new RadioHardware();
   radio_hardware->setEventBus(&eventBus());
+  radio_hardware->setBridge(home_assistant_bridge);
   if (!radio_hardware->initialize()) {
     Serial.println("WARNING: RadioHardware initialization had issues - check connections");
   } else {
@@ -698,6 +707,9 @@ void loop()
   }
 
   // Update hardware - RadioHardware manages all control interactions
+  if (home_assistant_bridge) {
+    home_assistant_bridge->update();
+  }
   if (radio_hardware) {
     radio_hardware->update();
   }
