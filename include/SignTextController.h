@@ -1,8 +1,15 @@
 #ifndef SIGN_TEXT_CONTROLLER_H
 #define SIGN_TEXT_CONTROLLER_H
 
+#ifdef ARDUINO
 #include <Arduino.h>
 #include <functional>
+#else
+#include <stdint.h>
+#include <functional>
+#include <string>
+typedef std::string String;
+#endif
 
 // Forward declaration
 class DisplayManager;

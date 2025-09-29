@@ -1,7 +1,5 @@
 #include "DisplayManager.h"
 #include <Wire.h>
-#include <fonts/retro_font4x6.h>
-#include <fonts/modern_font4x6.h>
 
 DisplayManager::DisplayManager(int num_boards, int board_width, int board_height)
   : num_boards_(num_boards)
@@ -12,6 +10,7 @@ DisplayManager::DisplayManager(int num_boards, int board_width, int board_height
   , character_width_(4)
   , max_characters_(total_width_ / character_width_)
   , drivers_{nullptr, nullptr, nullptr, nullptr}
+  , font_manager_(std::make_unique<FontManager>())
   , current_brightness_level_(128)
 {
 }
@@ -223,16 +222,36 @@ void DisplayManager::drawCharacter(uint8_t character_pattern[6], int x_offset, u
   }
 }
 
-void DisplayManager::drawText(const String& text, int start_x, uint8_t brightness, bool use_alt_font) {
+void DisplayManager::drawGlyph4x6(int x, int y, uint8_t rows[6], uint8_t brightness) {
+  for (int row = 0; row < 6; row++) {
+    uint8_t pattern = rows[row];
+    for (int col = 0; col < 4; col++) {
+      int x_pos = x + (3 - col);  // Character positioning logic
+      int y_pos = y + row;
+      if (x_pos >= 0 && x_pos < total_width_ && y_pos >= 0 && y_pos < total_height_) {
+        if ((pattern & (1 << col)) != 0) {
+          setPixel(x_pos, y_pos, brightness);
+        } else {
+          setPixel(x_pos, y_pos, 0);
+        }
+      }
+    }
+  }
+}
+
+void DisplayManager::drawText(const String& text, int start_x, uint8_t brightness, RetroText::Font font) {
+  IFont4x6* font_instance = font_manager_->getFont(font);
+  if (!font_instance) {
+    font_instance = font_manager_->getDefaultFont();
+  }
+  
   for (int i = 0; i < text.length(); i++) {
     char c = text.charAt(i);
     uint8_t character = c - 32; // ASCII offset
     
-    // Get character pattern
+    // Get character pattern using font interface
     uint8_t pattern[6];
-    for (int row = 0; row < 6; row++) {
-      pattern[row] = getCharacterPattern(character, row, use_alt_font);
-    }
+    font_instance->getCharacterGlyph(character, pattern);
     
     // Draw character
     int char_x = start_x + (i * character_width_);
@@ -240,6 +259,12 @@ void DisplayManager::drawText(const String& text, int start_x, uint8_t brightnes
       drawCharacter(pattern, char_x, brightness);
     }
   }
+}
+
+void DisplayManager::drawText(const String& text, int start_x, uint8_t brightness, bool use_alt_font) {
+  // Legacy method - convert boolean to Font enum
+  RetroText::Font font = use_alt_font ? RetroText::MODERN_FONT : RetroText::ARDUBOY_FONT;
+  drawText(text, start_x, brightness, font);
 }
 
 void DisplayManager::setGlobalBrightness(uint8_t brightness) {
@@ -262,19 +287,31 @@ int DisplayManager::getBoardForPixel(int x) const {
 
 // mapPixelToBoard removed - IS31FL373x_Canvas handles multi-board coordinates directly
 
-uint8_t DisplayManager::getCharacterPattern(uint8_t character, uint8_t row, bool use_alt_font) const {
-  if (use_alt_font) {
-    // Alternative font
-    if (character >= 0 && character <= (sizeof(modern_font4x6)-3)/6) {
-      return pgm_read_byte(&modern_font4x6[3+character*6+row]) >> 4;
-    }
-  } else {
-    // Original font
-    if (character >= 0 && character <= (sizeof(retro_font4x6)-3)/6) {
-      return retro_font4x6[3+character*6+row] >> 4;
-    }
+void DisplayManager::displayStaticText(const String& text, RetroText::Font font) {
+  clearBuffer();
+  drawText(text, 0, 255, font);
+  updateDisplay();
+}
+
+void DisplayManager::displayStaticText(const String& text, bool use_alt_font) {
+  // Legacy method - convert boolean to Font enum
+  RetroText::Font font = use_alt_font ? RetroText::MODERN_FONT : RetroText::ARDUBOY_FONT;
+  displayStaticText(text, font);
+}
+
+uint8_t DisplayManager::getCharacterPattern(uint8_t character, uint8_t row, RetroText::Font font) const {
+  IFont4x6* font_instance = font_manager_->getFont(font);
+  if (!font_instance) {
+    font_instance = font_manager_->getDefaultFont();
   }
-  return 0;
+  
+  return font_instance->getCharacterPattern(character, row);
+}
+
+uint8_t DisplayManager::getCharacterPattern(uint8_t character, uint8_t row, bool use_alt_font) const {
+  // Legacy method - convert boolean to Font enum
+  RetroText::Font font = use_alt_font ? RetroText::MODERN_FONT : RetroText::ARDUBOY_FONT;
+  return getCharacterPattern(character, row, font);
 }
 
 // I2C functions removed - IS31FL373x driver handles I2C directly
@@ -421,19 +458,7 @@ bool DisplayManager::testDriverCommunication(int driver_index) {
   return true;
 }
 
-void DisplayManager::displayStaticText(const String& text, bool use_alt_font) {
-  // Clear the buffer first
-  clearBuffer();
-
-  // Align to character boundary (left-aligned at character 0)
-  int start_x = 0;
-
-  // Draw the text
-  drawText(text, start_x, 255, use_alt_font);  // Full brightness for announcements
-
-  // Update the display immediately
-  updateDisplay();
-}
+// Legacy displayStaticText method removed - now handled by the new font interface version
 
 // Brightness management
 void DisplayManager::setBrightnessLevel(uint8_t value) {

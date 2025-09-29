@@ -5,7 +5,11 @@
 // Full ASCII 32-126 range with blanks for missing characters
 
 
+#ifdef ARDUINO
 PROGMEM const unsigned char modern_font4x6[] = {
+#else
+const unsigned char modern_font4x6[] = {
+#endif
 4,6,32,
 // 32 - [ ] (not available)
 0b00000000,

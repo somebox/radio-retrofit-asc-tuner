@@ -311,9 +311,7 @@ void SignTextController::renderMessage() {
         Font active_font = getActiveFont(i);
         uint8_t pattern[6];
         for (int row = 0; row < 6; row++) {
-          // For now, map Font enum to boolean (DisplayManager needs updating later)
-          bool use_modern = (active_font == MODERN_FONT);
-          pattern[row] = display_manager_->getCharacterPattern(ascii, row, use_modern);
+          pattern[row] = display_manager_->getCharacterPattern(ascii, row, active_font);
         }
         display_manager_->drawCharacter(pattern, pixel_pos, brightness);
       } else if (render_callback_) {
@@ -338,9 +336,7 @@ void SignTextController::renderMessage() {
           Font active_font = getActiveFont(char_idx);
           uint8_t pattern[6];
           for (int row = 0; row < 6; row++) {
-            // For now, map Font enum to boolean (DisplayManager needs updating later)
-            bool use_modern = (active_font == MODERN_FONT);
-            pattern[row] = display_manager_->getCharacterPattern(ascii, row, use_modern);
+            pattern[row] = display_manager_->getCharacterPattern(ascii, row, active_font);
           }
           display_manager_->drawCharacter(pattern, char_pixel_pos, brightness);
         } else if (render_callback_) {

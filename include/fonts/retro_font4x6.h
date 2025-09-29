@@ -2,7 +2,11 @@
 // Inspired by Arduboy font
 // source:https://roseumteam.itch.io/font-4x6
 
+#ifdef ARDUINO
 PROGMEM const unsigned char retro_font4x6[] = {
+#else
+const unsigned char retro_font4x6[] = {
+#endif
 4,6,32,
 // 32 - [ ]
 0b00000000,

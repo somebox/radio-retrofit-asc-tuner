@@ -2,7 +2,11 @@
 // Custom icon font for radio interface
 // ASCII 32-126 range with icons mapped to specific characters
 
+#ifdef ARDUINO
 PROGMEM const unsigned char icon_font4x6[] = {
+#else
+const unsigned char icon_font4x6[] = {
+#endif
 4,6,32,
 // 32 - [ ] (space)
 0b00000000,

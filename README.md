@@ -31,12 +31,27 @@ The functions will be exposed as a library which can be used inside of an ESPHom
 ## Project Progress
 
 First version: prototype, combining the existing [RetroText](https://github.com/PixelTheater/retrotext) and [Lights n' Buttons](https://github.com/PixelTheater/lights-and-buttons) projects.
+Create ESPHome integration.
 
-Once that's working, here are planned features:
+## Build and Test
 
-- Create basic state and event handling to deal with button presses and mode changes, using the display to show the current mode
-- Add support for handling the preset buttons, which have different behaviors depending on the mode
-- Abstracted playlist functionality, which allows the user to scroll through a list of presets and select one
-- Create a basic API for the ESPHome project to use, exposing the UI and events to allow media playback selection, volume controls, etc.
+Build sample ESPHome project:
+
+```bash
+esphome compile --upload radio.yaml
+```
+
+Build and upload firmware:
+```bash
+pio run -e esp32-wrover
+```
+
+Run native tests:
+
+```bash
+pio test -e native
+```
+
+
 
 

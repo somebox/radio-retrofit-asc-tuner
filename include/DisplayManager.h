@@ -6,6 +6,8 @@
 #include <array>
 #include <memory>
 #include "I2CScan.h"
+#include "FontManager.h"
+#include "SignTextController.h"  // For Font enum
 
 class DisplayManager {
 public:
@@ -40,8 +42,13 @@ public:
   
   // Higher-level drawing operations
   void drawCharacter(uint8_t character_pattern[6], int x_offset, uint8_t brightness);
-  void drawText(const String& text, int start_x, uint8_t brightness, bool use_alt_font = true);
-  void displayStaticText(const String& text, bool use_alt_font = true);
+  void drawGlyph4x6(int x, int y, uint8_t rows[6], uint8_t brightness);
+  void drawText(const String& text, int start_x, uint8_t brightness, RetroText::Font font = RetroText::MODERN_FONT);
+  void displayStaticText(const String& text, RetroText::Font font = RetroText::MODERN_FONT);
+  
+  // Legacy method for backward compatibility
+  void drawText(const String& text, int start_x, uint8_t brightness, bool use_alt_font);
+  void displayStaticText(const String& text, bool use_alt_font);
   
   // Configuration
   void setGlobalBrightness(uint8_t brightness);
@@ -57,8 +64,11 @@ public:
   // Hardware-specific methods
   int getBoardForPixel(int x) const;
   
-  // Font access (temporary - should be moved to font manager later)
-  uint8_t getCharacterPattern(uint8_t character, uint8_t row, bool use_alt_font = true) const;
+  // Font access
+  uint8_t getCharacterPattern(uint8_t character, uint8_t row, RetroText::Font font = RetroText::MODERN_FONT) const;
+  
+  // Legacy method for backward compatibility  
+  uint8_t getCharacterPattern(uint8_t character, uint8_t row, bool use_alt_font) const;
   
 private:
   // Hardware configuration
@@ -73,6 +83,9 @@ private:
   // Hardware abstraction - IS31FL373x driver integration
   static const int PIXELS_PER_BOARD = 12 * 12;  // IS31FL3737 native configuration
   std::array<std::unique_ptr<IS31FL3737>, 4> drivers_;  // Individual drivers for each board
+
+  // Font management
+  std::unique_ptr<FontManager> font_manager_;
 
   // Brightness management
   uint8_t current_brightness_level_;
