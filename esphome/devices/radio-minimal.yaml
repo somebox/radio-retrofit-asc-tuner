@@ -1,0 +1,123 @@
+external_components:
+  - source:
+      type: local
+      path: ../components
+
+esphome:
+  name: retro-radio
+  friendly_name: Retro Radio Bridge
+  on_boot:
+    then:
+      - lambda: |-
+          // Register all entities with the bridge component for automatic state sync
+          id(bridge).set_mode_select(id(radio_mode_select));
+          id(bridge).set_volume_number(id(radio_volume));
+          id(bridge).set_brightness_number(id(radio_brightness));
+          id(bridge).set_metadata_text_sensor(id(radio_metadata));
+          id(bridge).set_current_mode_text_sensor(id(radio_current_mode));
+          id(bridge).set_current_volume_sensor(id(radio_current_volume));
+          id(bridge).set_current_brightness_sensor(id(radio_current_brightness));
+
+esp32:
+  board: esp32dev
+  framework:
+    type: arduino
+
+logger:
+
+api:
+
+ota:
+  - platform: esphome
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+uart:
+  id: radio_bus
+  tx_pin: GPIO17
+  rx_pin: GPIO16
+  baud_rate: 115200
+
+# Radio controller component - handles all state synchronization automatically
+radio_controller:
+  id: bridge
+  uart_id: radio_bus
+
+# Simple mode select - bridge handles all updates automatically
+select:
+  - platform: template
+    name: "Radio Mode"
+    id: radio_mode_select
+    options: ["radio", "playlist", "clock", "animation"]
+    initial_option: "radio"
+    set_action:
+      - lambda: |-
+          int mode = (x == "radio") ? 0 : (x == "playlist") ? 1 : (x == "clock") ? 2 : 3;
+          id(bridge).send_mode_command(mode, x);
+
+# Volume and brightness controls - bridge handles sync
+number:
+  - platform: template
+    name: "Radio Volume"
+    id: radio_volume
+    min_value: 0
+    max_value: 255
+    step: 1
+    initial_value: 128
+    set_action:
+      - lambda: id(bridge).send_volume_command((int) x);
+
+  - platform: template
+    name: "Radio Brightness" 
+    id: radio_brightness
+    min_value: 0
+    max_value: 255
+    step: 1
+    initial_value: 128
+    set_action:
+      - lambda: id(bridge).send_brightness_command((int) x);
+
+# Preset switches
+switch:
+  - platform: template
+    name: "Preset 1 – Jazz"
+    id: preset_1_jazz
+    turn_on_action:
+      - lambda: id(bridge).send_mode_command(0, "radio", 1);
+      - delay: 500ms
+      - switch.turn_off: preset_1_jazz
+
+  - platform: template
+    name: "Preset 2 – Classical" 
+    id: preset_2_classical
+    turn_on_action:
+      - lambda: id(bridge).send_mode_command(0, "radio", 2);
+      - delay: 500ms
+      - switch.turn_off: preset_2_classical
+
+# Display current state - bridge updates these automatically
+text_sensor:
+  - platform: template
+    name: "Radio Metadata"
+    id: radio_metadata
+    icon: "mdi:music-note"
+
+  - platform: template
+    name: "Radio Current Mode"
+    id: radio_current_mode
+    icon: "mdi:radio"
+
+sensor:
+  - platform: template
+    name: "Radio Current Volume"
+    id: radio_current_volume
+    icon: "mdi:volume-high"
+
+  - platform: template
+    name: "Radio Current Brightness"
+    id: radio_current_brightness
+    icon: "mdi:brightness-6"
+
+# Entity registration happens automatically in on_boot above

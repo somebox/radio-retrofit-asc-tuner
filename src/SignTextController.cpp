@@ -23,9 +23,12 @@ SignTextController::SignTextController(int display_width_chars, int char_width_p
   , draw_callback_(nullptr)
   , brightness_callback_(nullptr)
 {
-  // Initialize highlights as inactive
+  // Initialize highlights and font spans as inactive
   for (int i = 0; i < MAX_HIGHLIGHTS; i++) {
     highlights_[i].active = false;
+  }
+  for (int i = 0; i < MAX_FONT_SPANS; i++) {
+    font_spans_[i].active = false;
   }
 }
 
@@ -99,6 +102,38 @@ void SignTextController::clearHighlights() {
   for (int i = 0; i < MAX_HIGHLIGHTS; i++) {
     highlights_[i].active = false;
   }
+}
+
+void SignTextController::setFontSpan(int start_char, int end_char, Font font) {
+  // Find first available font span slot
+  for (int i = 0; i < MAX_FONT_SPANS; i++) {
+    if (!font_spans_[i].active) {
+      font_spans_[i].start_char = start_char;
+      font_spans_[i].end_char = end_char;
+      font_spans_[i].font = font;
+      font_spans_[i].active = true;
+      break;
+    }
+  }
+}
+
+void SignTextController::clearFontSpans() {
+  for (int i = 0; i < MAX_FONT_SPANS; i++) {
+    font_spans_[i].active = false;
+  }
+}
+
+Font SignTextController::getActiveFont(int char_index) const {
+  // Check if character is within any active font span
+  for (int i = 0; i < MAX_FONT_SPANS; i++) {
+    if (font_spans_[i].active && 
+        char_index >= font_spans_[i].start_char && 
+        char_index <= font_spans_[i].end_char) {
+      return font_spans_[i].font;
+    }
+  }
+  // Return default font if no span applies
+  return current_font_;
 }
 
 void SignTextController::update() {
@@ -273,13 +308,17 @@ void SignTextController::renderMessage() {
       
       if (display_manager_) {
         // Get character pattern and draw using DisplayManager
+        Font active_font = getActiveFont(i);
         uint8_t pattern[6];
         for (int row = 0; row < 6; row++) {
-          pattern[row] = display_manager_->getCharacterPattern(ascii, row, current_font_ == MODERN_FONT);
+          // For now, map Font enum to boolean (DisplayManager needs updating later)
+          bool use_modern = (active_font == MODERN_FONT);
+          pattern[row] = display_manager_->getCharacterPattern(ascii, row, use_modern);
         }
         display_manager_->drawCharacter(pattern, pixel_pos, brightness);
       } else if (render_callback_) {
-        render_callback_(ascii, pixel_pos, brightness, current_font_ == MODERN_FONT);
+        Font active_font = getActiveFont(i);
+        render_callback_(ascii, pixel_pos, brightness, active_font == MODERN_FONT);
       }
     }
   } else {
@@ -296,13 +335,17 @@ void SignTextController::renderMessage() {
         
         if (display_manager_) {
           // Get character pattern and draw using DisplayManager
+          Font active_font = getActiveFont(char_idx);
           uint8_t pattern[6];
           for (int row = 0; row < 6; row++) {
-            pattern[row] = display_manager_->getCharacterPattern(ascii, row, current_font_ == MODERN_FONT);
+            // For now, map Font enum to boolean (DisplayManager needs updating later)
+            bool use_modern = (active_font == MODERN_FONT);
+            pattern[row] = display_manager_->getCharacterPattern(ascii, row, use_modern);
           }
           display_manager_->drawCharacter(pattern, char_pixel_pos, brightness);
         } else if (render_callback_) {
-          render_callback_(ascii, char_pixel_pos, brightness, current_font_ == MODERN_FONT);
+          Font active_font = getActiveFont(char_idx);
+          render_callback_(ascii, char_pixel_pos, brightness, active_font == MODERN_FONT);
         }
       }
     }
@@ -349,6 +392,107 @@ bool SignTextController::isCharacterHighlighted(int char_index, uint8_t& highlig
 bool SignTextController::shouldCharacterBeVisible(int char_index, int char_pixel_pos) const {
   // Character is visible if any part of it is on screen
   return char_pixel_pos > -char_width_pixels_ && char_pixel_pos < display_width_pixels_;
+}
+
+void SignTextController::setMessageWithMarkup(const String& message_with_markup) {
+  // Clear existing spans
+  clearFontSpans();
+  clearHighlights();
+  
+  // Parse markup and set clean message
+  message_ = parseMarkup(message_with_markup);
+  
+  // Reset scroll state
+  resetScroll();
+}
+
+String SignTextController::parseMarkup(const String& markup_text) {
+  String clean_text = "";
+  int char_pos = 0;  // Position in clean text (without markup)
+  int i = 0;
+  
+  while (i < markup_text.length()) {
+    char c = markup_text.charAt(i);
+    
+    if (c == '<') {
+      // Look for closing >
+      int end_pos = markup_text.indexOf('>', i);
+      if (end_pos == -1) {
+        // No closing >, treat as regular character
+        clean_text += c;
+        char_pos++;
+        i++;
+        continue;
+      }
+      
+      String tag = markup_text.substring(i + 1, end_pos);
+      i = end_pos + 1;
+      
+      // Parse font tags: <f:m>, <f:r>, <f:i>
+      if (tag.startsWith("f:")) {
+        Font font = MODERN_FONT;  // Default
+        if (tag.equals("f:m")) font = MODERN_FONT;
+        else if (tag.equals("f:r")) font = ARDUBOY_FONT;
+        else if (tag.equals("f:i")) font = ICON_FONT;
+        
+        // Find matching closing tag
+        String close_tag = "</f>";
+        int close_pos = markup_text.indexOf(close_tag, i);
+        if (close_pos != -1) {
+          // Extract text between tags
+          String span_text = markup_text.substring(i, close_pos);
+          String clean_span_text = parseMarkup(span_text);  // Recursive parse
+          
+          // Add font span
+          setFontSpan(char_pos, char_pos + clean_span_text.length() - 1, font);
+          
+          // Add clean text
+          clean_text += clean_span_text;
+          char_pos += clean_span_text.length();
+          
+          // Skip past closing tag
+          i = close_pos + close_tag.length();
+          if (i < markup_text.length() && markup_text.charAt(i) == '>') i++;
+        }
+      }
+      // Parse brightness tags: <b:bright>, <b:dim>, <b:normal>
+      else if (tag.startsWith("b:")) {
+        uint8_t brightness = NORMAL;  // Default
+        if (tag.equals("b:bright")) brightness = BRIGHT;
+        else if (tag.equals("b:dim")) brightness = DIM;
+        else if (tag.equals("b:normal")) brightness = NORMAL;
+        else if (tag.equals("b:very_dim")) brightness = VERY_DIM;
+        
+        // Find matching closing tag
+        String close_tag = "</b>";
+        int close_pos = markup_text.indexOf(close_tag, i);
+        if (close_pos != -1) {
+          // Extract text between tags
+          String span_text = markup_text.substring(i, close_pos);
+          String clean_span_text = parseMarkup(span_text);  // Recursive parse
+          
+          // Add highlight span
+          highlightText(char_pos, char_pos + clean_span_text.length() - 1, brightness);
+          
+          // Add clean text
+          clean_text += clean_span_text;
+          char_pos += clean_span_text.length();
+          
+          // Skip past closing tag
+          i = close_pos + close_tag.length();
+          if (i < markup_text.length() && markup_text.charAt(i) == '>') i++;
+        }
+      }
+      // Unknown tag, ignore
+    } else {
+      // Regular character
+      clean_text += c;
+      char_pos++;
+      i++;
+    }
+  }
+  
+  return clean_text;
 }
 
 } // namespace RetroText

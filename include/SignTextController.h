@@ -12,7 +12,8 @@ namespace RetroText {
 // Font constants
 enum Font {
   MODERN_FONT = 0,
-  ARDUBOY_FONT = 1
+  ARDUBOY_FONT = 1,
+  ICON_FONT = 2
 };
 
 // Scroll style constants
@@ -35,6 +36,14 @@ struct HighlightSpan {
   int start_char;
   int end_char;
   uint8_t brightness;
+  bool active;
+};
+
+// Font span structure for multi-font support
+struct FontSpan {
+  int start_char;
+  int end_char;
+  Font font;
   bool active;
 };
 
@@ -66,6 +75,14 @@ public:
   void highlightText(int start_char, int end_char, uint8_t brightness);
   void clearHighlights();
   
+  // Font spans for multi-font support
+  void setFontSpan(int start_char, int end_char, Font font);
+  void clearFontSpans();
+  
+  // Markup parsing
+  void setMessageWithMarkup(const String& message_with_markup);
+  String parseMarkup(const String& markup_text);
+  
   // Display control
   void update();
   bool isComplete() const;
@@ -95,6 +112,7 @@ private:
   // Helper methods
   int calculateTotalScrollPixels() const;
   int getEffectiveCharWidth() const;  // Character width + spacing for current scroll style
+  Font getActiveFont(int char_index) const;  // Get font for character (considering spans)
   
   // Display parameters
   int display_width_chars_;
@@ -117,9 +135,11 @@ private:
   unsigned long last_update_time_;
   bool scroll_complete_;
   
-  // Highlighting
+  // Highlighting and font spans
   static const int MAX_HIGHLIGHTS = 4;
+  static const int MAX_FONT_SPANS = 8;
   HighlightSpan highlights_[MAX_HIGHLIGHTS];
+  FontSpan font_spans_[MAX_FONT_SPANS];
   
   // Display integration
   ::DisplayManager* display_manager_;

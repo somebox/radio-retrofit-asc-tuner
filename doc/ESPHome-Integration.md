@@ -26,7 +26,7 @@ The unified event bus and JSON payload conventions are defined in `Event-System.
 2. **Shared Bridge Library (`include/HomeAssistantBridge.h`, `src/HomeAssistantBridge.cpp`)**
    - Encodes/decodes frames using the event catalog.
    - Provides helpers so firmware controllers can publish events or react to inbound HA commands.
-3. **ESPHome Component (`esphome/components/homeassistant_bridge/`)**
+3. **ESPHome Component (`esphome/components/radio_controller/`)**
    - Python module sets up the C++ component, registers triggers, and binds to UART (if used) or direct API callbacks.
    - C++ component extends `Component` and `uart::UARTDevice` (if UART debugging is desired) but primarily uses ESPHome API to forward JSON events.
 4. **Device YAML (`esphome/devices/radio.yaml`)**
@@ -113,12 +113,22 @@ This structure adheres to ESPHome component architecture and advanced topics suc
 
 ---
 
-### Next Implementation Steps
+### Implementation Status: ✅ Complete
 
-1. Align firmware controllers with the catalog defined in `Event-System.md` and ensure all payloads are JSON.
-2. Implement `HomeAssistantBridge` backends (stub for standalone, ESPHome integration for HA).
-3. Flesh out ESPHome component automations to expose key events (preset, metadata, brightness) using the unified bridge.
-4. Document HA YAML snippets for common flows (preset playback, metadata display, menu navigation).
-5. Expand roadmap docs to cover MenuModule structure and VU meter APIs, referencing this ESPHome plan and `Event-System.md` for payload definitions.
+**All core integration components are now implemented and working:**
 
-This approach keeps firmware authoritative, while ESPHome/HA orchestrates higher-level automation. By relying on the shared event catalog, `HomeAssistantBridge` simply translates between HA and local controllers without embedding UI behaviour.
+1. ✅ **Event System**: Firmware controllers use the unified catalog from `Event-System.md` with JSON payloads
+2. ✅ **Bridge Backends**: Complete implementation with `StubHomeAssistantBridge`, `SerialHomeAssistantBridge`, and `ESPHomeAssistantBridge`
+3. ✅ **ESPHome Component**: Full `RadioControllerComponent` with entity mappings and event handling
+4. ✅ **Device YAML**: Complete configuration in `esphome/devices/radio.yaml` with all entities and automations
+5. ✅ **Build System**: Firmware compiles successfully and is ready for hardware testing
+
+### Next Development Phase
+
+With the integration foundation complete, the next priorities are:
+- **Font System**: Multi-font support with `IFont4x6` interface
+- **Menu Module**: Dynamic menu system for playlists and settings
+- **VU Meter APIs**: Audio visualization features
+- **Enhanced Entities**: Additional sensors and diagnostic information
+
+This architecture successfully keeps firmware authoritative while enabling ESPHome/HA to orchestrate higher-level automation through the shared event catalog.
