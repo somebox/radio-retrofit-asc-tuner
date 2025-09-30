@@ -1,5 +1,8 @@
 #include "DisplayManager.h"
+#include "HardwareConfig.h"
 #include <Wire.h>
+
+using namespace HardwareConfig;
 
 DisplayManager::DisplayManager(int num_boards, int board_width, int board_height)
   : num_boards_(num_boards)
@@ -32,17 +35,16 @@ bool DisplayManager::initialize() {
     if (drivers_[i]) {
       Serial.printf("Initializing driver %d...\n", i);
       
-      // Test I2C communication before initializing
-      ADDR addr_pin;
+      // Get I2C address from config
+      uint8_t i2c_addr;
       switch (i) {
-        case 0: addr_pin = ADDR::GND; break;
-        case 1: addr_pin = ADDR::VCC; break;
-        case 2: addr_pin = ADDR::SDA; break;
-        case 3: addr_pin = ADDR::SCL; break;
-        default: addr_pin = ADDR::GND; break;
+        case 0: i2c_addr = I2C_ADDR_DISPLAY_1; break;
+        case 1: i2c_addr = I2C_ADDR_DISPLAY_2; break;
+        case 2: i2c_addr = I2C_ADDR_DISPLAY_3; break;
+        default: 
+          Serial.printf("ERROR: Invalid display index %d\n", i);
+          continue;
       }
-      
-      uint8_t i2c_addr = getI2CAddressFromADDR(addr_pin);
       Wire.beginTransmission(i2c_addr);
       uint8_t error = Wire.endTransmission();
       

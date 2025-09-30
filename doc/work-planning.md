@@ -42,16 +42,39 @@ The unified event system, JSON payload handling, bridge architecture, ESPHome in
   - ✅ **SignTextController Integration**: Updated to use new font interface directly
 - **API**: Clean font interface with `getCharacterPattern()`, `getCharacterGlyph()`, `hasCharacter()`, font management via `FontManager`
 
-### 4. Menu Module Implementation (Priority 4 - Next)
+### ✅ 4. Rotary Encoder Hardware Integration (COMPLETED)
+
+- **Status**: ✅ Fully implemented and tested  
+- **Features Delivered**:
+  - ✅ **TCA8418 Integration**: Encoder channels wired to Row 1, Col 1-3
+  - ✅ **Software Quadrature Decoding**: Gray code state machine for direction detection
+  - ✅ **Event Publishing**: `encoder.turned` and `encoder.pressed` events
+  - ✅ **State Tracking**: Position counter and button state management
+  - ✅ **Debug Logging**: Serial output for encoder events
+- **Hardware**: ENC_A (R1C1), ENC_B (R1C2), ENC_BUTTON (R1C3) on TCA8418
+- **Documentation**: `doc/Rotary-Encoder.md` with implementation details
+
+### 5. Diagnostics Mode ✅
+
+- **Interactive Console**: Serial command interface for hardware testing ✅
+- **LED Control**: Direct control of LEDs (`led <row> <col> <brightness>`, `led test`, `led clear`) ✅
+- **Controls Monitoring**: Real-time monitoring of buttons, encoder, and switches (`controls`) ✅
+- **Event Monitoring**: Live event stream for debugging (`events`) ✅
+- **System Info**: Status, memory, uptime, configuration (`info`, `config`)
+- **Log Suppression**: Periodic logs (FPS, status) disabled during active diagnostics
+- **Simple Commands**: Streamlined interface with help system
+- **Build Flag**: `ENABLE_DIAGNOSTICS` to include/exclude from builds
+- **Documentation**: `doc/Diagnostics-Mode.md` with simplified command reference
+
+### 6. Menu Module Implementation (Priority 6)
 
 - **MenuModule**: Navigation system for playlists, settings, diagnostics
-- **Rotary Encoder Integration**: ENC_A/ENC_B for navigation, ENC_BUTTON for selection
-- **Event integration**: Menu navigation via encoder events through TCA8418
+- **Encoder Control**: Uses encoder.turned/pressed events for navigation
+- **Event integration**: Menu state management via event system
 - **HA integration**: Dynamic menu content from Home Assistant
 - **Display**: Multi-page menus with scroll indicators
-- **Hardware Events**: `input.encoder` with `{"direction": "cw"|"ccw", "button": true|false}` payload
 
-### 5. VU Meter APIs
+### 7. VU Meter APIs
 
 - **Hardware**: Dual analog VU meters with LED indicators
 - **LED Control**: 2× VU meter LEDs + 3× meter drive channels via IS31FL3737
@@ -60,7 +83,7 @@ The unified event system, JSON payload handling, bridge architecture, ESPHome in
 - **Integration**: Audio level data from Home Assistant
 - **Animation**: Smooth VU meter display updates with LED status indicators
 
-### 6. Source Selector Integration
+### 8. Source Selector Integration
 
 - **Hardware**: 4-way selector switch connected to TCA8418 (4 channels)
 - **LED Indicators**: 4× position LEDs via IS31FL3737 unused channels
@@ -68,7 +91,7 @@ The unified event system, JSON payload handling, bridge architecture, ESPHome in
 - **Integration**: Source switching automation via Home Assistant
 - **Visual Feedback**: LED indication of current source selection
 
-### 7. Additional ESPHome Features
+### 9. Additional ESPHome Features
 
 - **Diagnostics**: System health sensors (uptime, memory, I2C status)
 - **Advanced Automations**: Scene-based lighting, time-based modes

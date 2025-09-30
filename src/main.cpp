@@ -16,6 +16,10 @@
 #include "SignTextController.h"
 #include "DisplayMode.h"
 
+#ifdef ENABLE_DIAGNOSTICS
+  #include "DiagnosticsMode.h"
+#endif
+
 // Configuration constants
 #define NUM_BOARDS 3
 #define WIDTH 24
@@ -37,6 +41,11 @@ RadioHardware* radio_hardware = nullptr;
 PresetManager* preset_manager = nullptr;
 AnnouncementModule* announcement_module = nullptr;
 IHomeAssistantBridge* home_assistant_bridge = nullptr;
+
+#ifdef ENABLE_DIAGNOSTICS
+  DiagnosticsMode* diagnostics = nullptr;
+  DiagnosticsMode* g_diagnostics_instance = nullptr;
+#endif
 
 // Mode system
 static const char* mode_names[] = {"Retro", "Modern", "Clock", "Animation"};
@@ -227,6 +236,8 @@ void setup() {
   Serial.begin(115200);
   delay(1000);
   
+  Serial.println("\n=== Radio Retrofit Firmware ===");
+  
   // Initialize I2C
   Serial.println("Initializing I2C with default ESP32 pins...");
   Wire.begin(); // SDA=GPIO21, SCL=GPIO22 (ESP32 defaults)
@@ -241,7 +252,15 @@ void setup() {
   display_manager = new DisplayManager(NUM_BOARDS, WIDTH, HEIGHT);
   if (!display_manager->initialize()) {
     Serial.println("FATAL: DisplayManager initialization failed!");
-    while(1) delay(1000);
+    #ifdef ENABLE_DIAGNOSTICS
+      diagnostics = new DiagnosticsMode(radio_hardware, &eventBus());
+      g_diagnostics_instance = diagnostics;
+      diagnostics->begin();
+      diagnostics->activate("DisplayManager init failed");
+      return;  // Stay in diagnostics
+    #else
+      while(1) delay(1000);
+    #endif
   }
   
   display_manager->printDisplayConfiguration();
@@ -274,8 +293,24 @@ void setup() {
   radio_hardware = new RadioHardware();
   radio_hardware->setEventBus(&eventBus());
   radio_hardware->setBridge(home_assistant_bridge);
+  
+  #ifdef ENABLE_DIAGNOSTICS
+    // Create diagnostics after hardware is created
+    if (!diagnostics) {
+      diagnostics = new DiagnosticsMode(radio_hardware, &eventBus());
+      g_diagnostics_instance = diagnostics;
+      diagnostics->begin();
+    }
+  #endif
+  
   if (!radio_hardware->initialize()) {
-    Serial.println("WARNING: RadioHardware initialization had issues");
+    Serial.println("*** ERROR: RadioHardware initialization failed ***");
+    #ifdef ENABLE_DIAGNOSTICS
+      diagnostics->activate("RadioHardware init failed");
+      return;  // Stay in diagnostics
+    #else
+      Serial.println("WARNING: RadioHardware initialization had issues");
+    #endif
   } else {
     Serial.println("RadioHardware initialized successfully");
     radio_hardware->setGlobalBrightness(global_brightness);
@@ -381,21 +416,47 @@ void setup() {
 
   pinMode(USER_BUTTON, INPUT_PULLUP);
   Serial.println("Starting demo mode...");
+  Serial.println("Press any key for diagnostics mode");
 }
 
 void loop() {
+  #ifdef ENABLE_DIAGNOSTICS
+    // Handle serial input for diagnostics
+    if (Serial.available()) {
+      String line = Serial.readStringUntil('\n');
+      line.trim();
+      
+      if (line.length() > 0) {
+        if (!diagnostics->isActive()) {
+          diagnostics->activate();  // First keypress activates
+        }
+        diagnostics->processCommand(line);
+      }
+    }
+    
+    // Skip normal operations when in diagnostics
+    if (diagnostics->isActive()) {
+      return;
+    }
+  #endif
+  
   static unsigned long last_fps_report = 0;
   static unsigned long frame_count = 0;
   frame_count++;
 
-  // FPS and status report every 5 seconds
-  if (millis() - last_fps_report > 5000) {
-    float fps = frame_count * 1000.0 / (millis() - last_fps_report);
-    Serial.printf("FPS: %.1f | Mode: %s | Announcement: %s\n",
-                  fps, mode_names[static_cast<uint8_t>(current_mode)],
-                  (announcement_module && announcement_module->isActive()) ? "active" : "idle");
-    last_fps_report = millis();
-    frame_count = 0;
+  // FPS and status report every 5 seconds - suppressed during diagnostics
+  #ifdef ENABLE_DIAGNOSTICS
+    if (!diagnostics->isActive())
+  #endif
+  {
+    if (millis() - last_fps_report > 5000) {
+      float fps = frame_count * 1000.0 / (millis() - last_fps_report);
+      Serial.printf("FPS: %.1f | Mode: %s | Announcement: %s\n",
+                    fps, mode_names[static_cast<uint8_t>(current_mode)],
+                    (announcement_module && announcement_module->isActive()) ? "active" : "idle");
+      last_fps_report = millis();
+      frame_count = 0;
+    }
   }
 
   // Update hardware and bridge

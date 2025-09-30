@@ -1,83 +1,232 @@
-# Event System Overview
+# Event System
 
-This document describes the unified event bus used across the radio firmware, controllers, and Home Assistant bridge. It establishes common terminology, payload schema, and design guidelines so components, modules, and controllers can interoperate consistently.
+Unified publish-subscribe event bus for firmware components, controllers, and Home Assistant bridge integration.
 
-## Goals
+## Architecture
 
-- Provide a single event structure used for all publishers and subscribers.
-- Keep hardware-facing components reusable by isolating behaviour in controllers/modules.
-- Make it easy to add new event types and payloads without touching multiple files.
-- Ensure the Home Assistant bridge (`HomeAssistantBridge`) has a clear mapping between local and external events.
+**EventBus**: Static allocation, O(n) dispatch (n≤8 subscribers per event), singleton via `eventBus()`
 
-## Event Structure
+**Event Structure**:
+```cpp
+namespace events {
+struct Event {
+  EventType type;           // Enum for type-safe handling
+  uint16_t type_id;         // Numeric ID for serialization
+  const char* type_name;    // String name (auto-populated from catalog)
+  uint32_t timestamp;       // Milliseconds since boot
+  std::string value;        // JSON payload
+};
+}
+```
 
-All events share this layout:
+**Key Files**:
+- `include/Events.h` - EventType enum, EventBus interface
+- `src/Events.cpp` - Event catalog, EventBus implementation
+- `include/events/JsonHelpers.h` - JSON payload builders
 
-| Field       | Type          | Description                                                  |
-|-------------|---------------|--------------------------------------------------------------|
-| `type_id`   | 16-bit number | Stable identifier for the event (assigned in catalog).      |
-| `type_name` | string        | Human-readable name (e.g., `preset.selected`).               |
-| `timestamp` | uint32 (ms)   | Millisecond clock when the event was published.             |
-| `value`     | string (JSON) | JSON payload describing the event-specific data.            |
+---
 
-Events are defined in a single catalog (`EventCatalog` in code) and grouped by feature domains (inputs, playback, display, settings, bridge, etc.). Adding a new event means registering it in the catalog once with its expected JSON keys.
+## Event Catalog
 
-## JSON Payload Conventions
+### Current Events (v1.0)
 
-- Payloads are UTF-8 JSON objects.
-- Top-level keys use snake_case (`{"value":180}` or `{"station_id":"station.lofi"}`).
-- Include only the fields that are meaningful; omit null/empty values.
-- For simple numeric or boolean values, wrap them under a `value` key (e.g., `{"value":180}` or `{"value":true}`).
-- Identifiers use descriptive strings (`"mode.radio"`, `"preset.2"`).
-- Complex data (metadata, menu items, diagnostics) can include nested objects/arrays, but keep depth shallow for easy parsing on the ESP32.
-- If payloads need versioning, include `"schema":1` or similar so consumers can branch as needed.
+| ID | Name | Enum | Direction | Payload | Description |
+|----|------|------|-----------|---------|-------------|
+| 0  | `preset.pressed` | PresetPressed | HW→Comp | `value`, `aux?` | Button pressed |
+| 1  | `preset.released` | PresetReleased | HW→Comp | `value`, `aux?` | Button released |
+| 2  | `encoder.turned` | EncoderTurned | HW→Comp | `direction`, `steps` | Encoder rotation |
+| 3  | `encoder.pressed` | EncoderPressed | HW→Comp | `pressed` | Encoder button |
+| 4  | `settings.brightness` | BrightnessChanged | Bidir | `value` (0-255) | Display brightness |
+| 5  | `announcement.requested` | AnnouncementRequested | Comp→Mod | `text`, `priority?` | Show message |
+| 6  | `announcement.completed` | AnnouncementCompleted | Mod→Comp | empty | Message done |
+| 7  | `system.mode` | ModeChanged | Bidir | `value`, `name?`, `preset?` | Mode change |
+| 8  | `settings.volume` | VolumeChanged | Bidir | `value` (0-255) | Volume level |
 
-### Examples
+**Direction**: HW→Comp (hardware to components), Comp→Mod (components to modules), Mod→Comp (modules to components), Bidir (bidirectional firmware/HA)
 
-| Event Name            | Example Payload                                      | Notes |
-|-----------------------|-------------------------------------------------------|-------|
-| `settings.brightness` | `{ "value": 180 }`                                   | Simple scalar update. |
-| `input.preset`        | `{ "preset_id": "preset.2" }`                      | Identifier plus room for `label`. |
-| `playback.metadata`   | `{ "title": "Nightcall", "artist": "Kavinsky", "bitrate_kbps": 1024 }` | Rich metadata from HA. |
-| `display.message`     | `{ "text": "Now Playing", "priority": "info" }`   | Display controller formats text. |
-| `display.vu`          | `{ "left": 0.65, "right": 0.62 }`                  | Per-channel levels. |
-| `menu.items`          | `{ "items": [{"id":"station.lofi","name":"Lofi Beats"}] }` | Menu population. |
-| `favorites.save`      | `{ "station_id": "station.lofi" }`                 | Request HA to persist favourites. |
+### Planned Events
 
-Controllers and downstream consumers should validate required keys and ignore unknown ones so payloads remain extensible.
+| Name | Payload | Purpose |
+|------|---------|---------|
+| `display.message` | `text`, `priority`, `timeout_ms` | High-level display text |
+| `display.vu` | `left`, `right`, `led_left`, `led_right` | VU meter levels |
+| `playback.metadata` | `title`, `artist`, `album`, `codec` | Now playing info |
+| `playback.station` | `station_id`, `url` | Station selection |
+| `menu.items` | `items[]`, `selected` | Menu content from HA |
+| `menu.navigate` | `direction`, `position` | Menu navigation |
+| `input.source_selector` | `position`, `source` | 4-way selector |
+| `bridge.command` | `type`, `data` | Raw HA command |
 
-## Publishing & Subscribing
+---
 
-### Components & Modules
+## JSON Payloads
 
-- **Components** (e.g., `RadioHardware`, `DisplayManager`, `PresetManager`, `SignTextController`) publish low-level hardware notifications and react to events that affect the hardware state. They do not encode scenarios (no knowledge of “streaming radio” or “menu active”).
-- **Modules** (e.g., `ClockDisplay`, `MeteorAnimation`, `StreamingRadioModule`, `AnnouncementModule`) encapsulate specific features. They subscribe to relevant events and publish higher-level updates (UI content, state transitions).
+### Conventions
 
-### Controllers
+- Use snake_case keys (`preset_id`, `timeout_ms`)
+- Simple values: `{"value":180}`
+- Include units in keys (`bitrate_kbps`)
+- Keep flat (max 2 levels deep)
+- Omit null/empty values
 
-Controllers coordinate behaviour between components and modules. They:
+### Helpers
 
-- Subscribe to input events (buttons, encoder, bridge commands).
-- Activate/deactivate modules based on mode/state.
-- Publish events representing business logic with JSON payloads.
-- Only forward events when the owning module is active, so multiple controllers can co-exist (e.g., settings controller vs. playback controller).
+```cpp
+using namespace events::json;
 
-Examples of controllers:
+// Build payloads
+evt.value = object({
+    number_field("value", 180),
+    string_field("name", "radio"),
+    boolean_field("enabled", true)
+});
 
-- `SettingsController`: listens to encoder and preset button events when the menu module is active; publishes `settings.brightness = {"value":180}` or `settings.volume = {"value":72}`, which the display manager or audio subsystem consume.
-- `RadioController`: responds to preset selection, fetches stream info, publishes `playback.station = {"station_id":"station.lofi"}`, `playback.metadata = {...}`, and `display.message = {...}`, and calls bridge helpers to notify HA.
+// Conditional fields (skip if false)
+evt.value = object({
+    number_field("value", mode),
+    string_field("name", name, name && name[0]),  // Only if non-empty
+    number_field("preset", preset, preset >= 0)    // Only if >= 0
+});
+```
 
-### Home Assistant Bridge
+**API**:
+- `number_field(key, value, enabled=true)` - integers/floats
+- `string_field(key, value, enabled=true)` - auto-escaping
+- `boolean_field(key, value, enabled=true)` - true/false
+- `object({...})` - build JSON object
+- `escape(str)` - escape special chars
 
-`HomeAssistantBridge` is the single integration point for Home Assistant:
+---
 
-- **ESPHome build**: the bridge feeds events into ESPHome entities/triggers and converts inbound commands from the ESPHome API to JSON payloads the controllers understand.
-- **Demo build**: the bridge can be stubbed to log events or accept simple serial commands, so developers can inspect or inject events without HA running.
-- The bridge performs JSON parsing/encoding only; it never contains UI logic or knowledge of how modules render data.
+## Usage
 
-## Event Catalog Organisation
+### Publishing Events
 
-Events are grouped by domain; each entry includes:
+```cpp
+void RadioHardware::handlePresetKeyEvent(int row, int col, bool pressed) {
+  if (!event_bus_) return;
 
-- `type_id`
-- `
+  events::Event evt(pressed ? EventType::PresetPressed : EventType::PresetReleased);
+  evt.timestamp = millis();
+  evt.value = events::json::object({
+      events::json::number_field("value", col),
+      events::json::number_field("aux", row, row != 0)
+  });
+  event_bus_->publish(evt);
+}
+```
+
+### Subscribing to Events
+
+```cpp
+class PresetManager {
+  bool registerEventHandlers() {
+    EventBus& bus = eventBus();
+    return bus.subscribe(EventType::PresetPressed, &handleEvent, this) &&
+           bus.subscribe(EventType::PresetReleased, &handleEvent, this);
+  }
+
+  static void handleEvent(const events::Event& event, void* context) {
+    auto* self = static_cast<PresetManager*>(context);
+    String json = String(event.value.c_str());
+    int col = parseIntField(json, "value", -1);
+    self->processButton(col);
+  }
+};
+```
+
+### Event Flow
+
+```
+Hardware Input → RadioHardware.update()
+  → eventBus.publish(preset.pressed)
+    → PresetManager.handleEvent() [subscriber]
+      → PresetManager.applyAction()
+        → eventBus.publish(system.mode)
+          → Bridge.publishEvent() [subscriber]
+            → ESPHome API → Home Assistant
+```
+
+---
+
+## Adding New Events
+
+1. Add enum to `EventType` in `include/Events.h`
+2. Add catalog entry in `src/Events.cpp` with unique ID
+3. Document payload in this file
+4. Update ESPHome component if bridged to HA
+5. Add test case in `test/test_native_event_catalog/`
+
+**Example**:
+```cpp
+// include/Events.h
+enum class EventType : uint16_t {
+  // ...existing...
+  MenuNavigate,
+  Count
+};
+
+// src/Events.cpp
+constexpr EventCatalogEntry kCatalog[] = {
+  // ...existing...
+  {EventType::MenuNavigate, 9, "menu.navigate"},
+};
+```
+
+---
+
+## Testing
+
+Run tests: `pio test -e native`
+
+**Test Coverage**:
+- `test_native_event_catalog` - Catalog lookups
+- `test_native_event_serialization` - Event construction, payloads
+- `test_native_json_helpers` - JSON builders, escaping
+- `test/bridge/` - Bridge integration
+
+---
+
+## Debugging
+
+### Enable Event Logging
+
+```cpp
+void debugLog(const events::Event& evt, void*) {
+  Serial.printf("[EVENT] %s: %s\n", evt.type_name, evt.value.c_str());
+}
+
+// Log all events
+for (int i = 0; i < static_cast<int>(EventType::Count); i++) {
+  eventBus().subscribe(static_cast<EventType>(i), debugLog, nullptr);
+}
+```
+
+### Common Issues
+
+| Issue | Cause | Fix |
+|-------|-------|-----|
+| Events not received | Handler not registered | Check `subscribe()` return value |
+| Parse fails | Key mismatch | Verify payload keys match docs |
+| Event storm | No debounce | Add rate limiting |
+
+---
+
+## Performance
+
+- **Subscriber limit**: 8 per event type
+- **Dispatch**: Synchronous, keep handlers fast (<1ms)
+- **Payload size**: Target <200 bytes
+- **Memory**: Static allocation only
+- **Queuing**: None (events are not buffered)
+
+---
+
+## Integration
+
+Events cross firmware/HA boundary via `HomeAssistantBridge`. See `ESPHome-Integration.md` for details.
+
+**Outbound** (Firmware→HA): Events auto-serialized to ESPHome API  
+**Inbound** (HA→Firmware): Bridge converts commands to events
+
+The `RadioControllerComponent` handles bidirectional flow and state sync.

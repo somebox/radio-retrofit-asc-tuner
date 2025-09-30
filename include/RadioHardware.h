@@ -63,6 +63,16 @@ public:
   bool isPresetLEDReady() const { return preset_led_ready_; }
   
 private:
+  // Encoder state tracking
+  struct EncoderState {
+    uint8_t last_a : 1;
+    uint8_t last_b : 1;
+    uint8_t button_pressed : 1;
+    int8_t position;
+    
+    EncoderState() : last_a(0), last_b(0), button_pressed(0), position(0) {}
+  };
+  EncoderState encoder_state_;
   friend class RadioBridgeHandlerImpl;
 
   // Hardware instances
@@ -78,27 +88,17 @@ private:
   bool preset_led_ready_;
   bool initialized_;
   
-  // Configuration constants
-  static const uint8_t KEYPAD_I2C_ADDR = 0x34;  // TCA8418 default address
-  static const uint8_t PRESET_LED_I2C_ADDR = 0x55;  // IS31FL3737 with SCL pin
-  static const int KEYPAD_ROWS = 4;
-  static const int KEYPAD_COLS = 10;
-  static const int NUM_PRESETS = 8;  // 7 presets + 1 memory button
-  
-  // Preset LED mapping (SW0, CS0-CS8 for presets 1-7 + memory)
-  struct PresetLEDMapping {
-    int sw_pin;
-    int cs_pin;
-  };
-  
-  static const PresetLEDMapping PRESET_LED_MAP[NUM_PRESETS];
+  // Configuration is centralized in HardwareConfig.h
+  // No local configuration constants - see HardwareConfig.h for all hardware settings
   
   // Helper methods
   bool initializeKeypad();
   bool initializePresetLEDs();
   bool testI2CDevice(uint8_t address, const char* device_name);
-  void mapPresetToLED(int preset_num, int& sw_pin, int& cs_pin);
   void handlePresetKeyEvent(int row, int col, bool pressed);
+  void handleEncoderEvent(int col, bool pressed);
+  void publishEncoderTurned(int direction, int steps);
+  void publishEncoderButton(bool pressed);
 };
 
 #endif // RADIO_HARDWARE_H
