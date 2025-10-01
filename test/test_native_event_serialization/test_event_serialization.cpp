@@ -1,7 +1,7 @@
 #include <unity.h>
 
-#include "Events.h"
-#include "events/JsonHelpers.h"
+#include "platform/events/Events.h"
+#include "platform/JsonHelpers.h"
 
 namespace {
 

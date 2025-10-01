@@ -2,22 +2,22 @@
 #include <Wire.h>
 #include <WiFiManager.h>
 
-#include "WifiTimeLib.h"
-#include "DisplayManager.h"
-#include "ClockDisplay.h"
-#include "MeteorAnimation.h"
-#include "RadioHardware.h"
-#include "PresetManager.h"
-#include "AnnouncementModule.h"
-#include "Events.h"
-#include "HomeAssistantBridge.h"
-#include "I2CScan.h"
-#include "messages.h"
-#include "SignTextController.h"
-#include "DisplayMode.h"
+#include "platform/WifiTimeLib.h"
+#include "display/DisplayManager.h"
+#include "features/ClockDisplay.h"
+#include "features/MeteorAnimation.h"
+#include "hardware/RadioHardware.h"
+#include "hardware/PresetManager.h"
+#include "features/AnnouncementModule.h"
+#include "platform/events/Events.h"
+#include "platform/HomeAssistantBridge.h"
+#include "platform/I2CScan.h"
+#include "features/messages.h"
+#include "display/SignTextController.h"
+#include "display/DisplayMode.h"
 
 #ifdef ENABLE_DIAGNOSTICS
-  #include "DiagnosticsMode.h"
+  #include "features/DiagnosticsMode.h"
 #endif
 
 // Configuration constants

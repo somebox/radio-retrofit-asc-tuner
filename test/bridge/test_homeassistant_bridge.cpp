@@ -1,9 +1,9 @@
 #include <unity.h>
 #include <sstream>
 
-#include "HomeAssistantBridge.h"
-#include "Events.h"
-#include "events/JsonHelpers.h"
+#include "platform/HomeAssistantBridge.h"
+#include "platform/events/Events.h"
+#include "platform/JsonHelpers.h"
 
 namespace {
 

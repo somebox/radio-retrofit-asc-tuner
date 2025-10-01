@@ -5,7 +5,7 @@
 // The markup parsing functionality should be tested on actual hardware.
 
 #ifdef ARDUINO
-#include "SignTextController.h"
+#include "display/SignTextController.h"
 using namespace RetroText;
 #endif
 

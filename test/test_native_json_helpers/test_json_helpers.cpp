@@ -1,6 +1,6 @@
 #include <unity.h>
 
-#include "events/JsonHelpers.h"
+#include "platform/JsonHelpers.h"
 
 namespace {
 
