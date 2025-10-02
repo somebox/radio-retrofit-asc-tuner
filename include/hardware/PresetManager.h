@@ -73,21 +73,15 @@ private:
 
   PresetState button_states_[kButtonCount];
   unsigned long state_change_times_[kButtonCount];
-  unsigned long press_times_[kButtonCount];
 
   unsigned long release_time_;
   unsigned long last_update_;
 
-  bool handlers_registered_;
-
   const PresetButtonBinding* bindings_;  // current context bindings
 
-  bool registerEventHandlers();
-  void unregisterEventHandlers();
-
-  void handlePresetEvent(EventType type, int row, int col);
+  void checkButtons();
   void handleButtonPressed(int button_index);
-  void handleButtonReleased(int button_index);
+  void handleButtonReleased(int button_index, bool long_press);
   void enterMenu();
   void exitMenu(bool save);
 
@@ -103,9 +97,6 @@ private:
   static constexpr unsigned long DISPLAY_TIMEOUT = 1000;
   static constexpr unsigned long FADE_DURATION = 300;
   static constexpr unsigned long LONG_PRESS_THRESHOLD = 600;  // ms
-
-  static void handlePresetPressedEvent(const events::Event& event, void* context);
-  static void handlePresetReleasedEvent(const events::Event& event, void* context);
 };
 
 

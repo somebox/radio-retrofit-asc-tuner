@@ -70,6 +70,16 @@ public:
   // Legacy method for backward compatibility  
   uint8_t getCharacterPattern(uint8_t character, uint8_t row, bool use_alt_font) const;
   
+  // SignTextController factory methods
+  std::unique_ptr<RetroText::SignTextController> createModernTextController();
+  std::unique_ptr<RetroText::SignTextController> createRetroTextController();
+  
+  // Helper for displaying static messages (used during initialization)
+  void displayStaticMessage(const String& message, RetroText::Font font = RetroText::MODERN_FONT, int duration_ms = 0);
+  
+  // Text rendering helpers
+  static uint8_t getCharacterBrightness(char c, const String& text, int char_pos, bool is_time_display = false);
+  
 private:
   // Hardware configuration
   int num_boards_;
@@ -98,6 +108,12 @@ private:
   uint8_t getI2CAddressFromADDR(ADDR addr) const;
   const char* getADDRPinName(ADDR addr) const;
   bool testDriverCommunication(int driver_index);
+  
+  // Text brightness helpers
+  static bool isWordCapitalized(const String& text, int start_pos);
 };
+
+// Forward declaration for backward compatibility
+void display_static_message(String message, bool use_modern_font = true, int display_time_ms = 0);
 
 #endif // DISPLAY_MANAGER_H

@@ -80,6 +80,22 @@ bool RadioHardware::initialize() {
     Serial.println("ERROR: Failed to initialize preset LED driver");
   }
   
+  // Setup InputManager
+  if (keypad_ready_) {
+    Serial.println("Initializing InputManager...");
+    input_manager_.setKeypad(&keypad_);
+    
+    // Register preset buttons (0-7)
+    for (int i = 0; i < NUM_PRESETS; i++) {
+      input_manager_.registerButton(i);
+    }
+    
+    // Register encoder (ID 0)
+    input_manager_.registerEncoder(0);
+    
+    Serial.println("InputManager initialized with 8 buttons + encoder");
+  }
+  
   initialized_ = true;
   
   Serial.println("=== RadioHardware Initialization Complete ===");
@@ -106,27 +122,11 @@ void RadioHardware::setBridge(IHomeAssistantBridge* bridge) {
 }
 
 void RadioHardware::update() {
-  // Handle keypad events and pass to appropriate handlers
-  if (hasKeypadEvent()) {
-    int event = getKeypadEvent();
-    bool pressed = event & 0x80;
-    int key_number = (event & 0x7F) - 1;
-    int row = key_number / KEYPAD_COLS;
-    int col = key_number % KEYPAD_COLS;
-
-    if (!isValidKeypress(key_number)) {
-      return;
-    }
-
-    // Handle preset buttons (row 0)
-    if (row == 0) {
-      handlePresetKeyEvent(row, col, pressed);
-    }
-    // Handle encoder (row 1, cols 1-3)
-    else if (row == ENCODER_ROW && col >= ENCODER_COL_A && col <= ENCODER_COL_BUTTON) {
-      handleEncoderEvent(col, pressed);
-    }
-  }
+  // Update InputManager (polls keypad and updates control states)
+  input_manager_.update();
+  
+  // Note: Encoder is for local navigation only, not published to ESPHome
+  // Device state changes (mode, brightness, volume) are published instead
 }
 
 bool RadioHardware::verifyHardware() {
@@ -186,15 +186,7 @@ int RadioHardware::getKeypadEvent() {
   return keypad_.getEvent();
 }
 
-void RadioHardware::configureKeypadMatrix() {
-  if (!keypad_ready_) {
-    Serial.println("WARNING: Keypad not ready, cannot configure matrix");
-    return;
-  }
-  keypad_.matrix(KEYPAD_ROWS, KEYPAD_COLS);
-  Serial.printf("Keypad matrix configured for %dx%d (%d buttons)\n", 
-                KEYPAD_ROWS, KEYPAD_COLS, KEYPAD_ROWS * KEYPAD_COLS);
-}
+// configureKeypadMatrix removed - configuration handled in initializeKeypad()
 
 void RadioHardware::setLED(int row, int col, uint8_t brightness) {
   if (!preset_led_ready_) {
@@ -391,20 +383,7 @@ bool RadioHardware::testI2CDevice(uint8_t address, const char* device_name) {
   }
 }
 
-// mapPresetToLED removed - now using HardwareConfig::getPresetLED() directly
-
-bool RadioHardware::isValidKeypress(int key_number) const {
-  int row = key_number / KEYPAD_COLS;
-  int col = key_number % KEYPAD_COLS;
-  
-  // Check if it's a preset button or encoder
-  int preset_idx = findPresetByButton(row, col);
-  if (preset_idx >= 0) return true;
-  
-  if (isEncoderButton(row, col)) return true;
-  
-  return false;
-}
+// isValidKeypress removed - InputManager handles all button validation
 
 void RadioHardware::showProgress(int progress) {
   if (!preset_led_driver_ || !preset_led_ready_) return;
@@ -430,42 +409,7 @@ void RadioHardware::showProgress(int progress) {
 }
 
 
-void RadioHardware::handlePresetKeyEvent(int row, int col, bool pressed) {
-  // Look up preset by button position using config
-  int preset_idx = findPresetByButton(row, col);
-  if (preset_idx < 0) {
-    return;  // Not a preset button
-  }
-  
-  // Get preset info from config
-  const PresetButton* button = getPresetButton(preset_idx);
-  if (!button) return;
-  
-  int preset_num = preset_idx + 1;  // Convert to 1-based for display
-  
-  // Set LED brightness using config
-  uint8_t brightness = pressed ? LED_BRIGHTNESS_FULL : LED_BRIGHTNESS_DIM;
-  setPresetLED(preset_num, brightness);
-  updatePresetLEDs();
-  
-  // Publish event
-  events::Event evt(pressed ? EventType::PresetPressed : EventType::PresetReleased);
-#ifdef ARDUINO
-  evt.timestamp = millis();
-#else
-  evt.timestamp = 0;
-#endif
-  evt.value = events::json::object({
-    events::json::number_field("preset", preset_num),
-    events::json::string_field("name", button->name)
-  });
-  
-  if (event_bus_) {
-    event_bus_->publish(evt);
-  }
-  
-  Serial.printf("%s %s\n", button->name, pressed ? "pressed" : "released");
-}
+// handlePresetKeyEvent removed - PresetManager handles button logic directly via InputManager
 
 void RadioHardware::handleBridgeSetMode(int mode, const char* mode_name, int preset) {
   if (!event_bus_) return;
@@ -515,104 +459,7 @@ void RadioHardware::handleBridgeStatusRequest() {
   bridge_->publishEvent(evt);
 }
 
-void RadioHardware::handleEncoderEvent(int col, bool pressed) {
-  // Encoder button
-  if (col == ENCODER_COL_BUTTON) {
-    if (encoder_state_.button_pressed != pressed) {
-      encoder_state_.button_pressed = pressed;
-      publishEncoderButton(pressed);
-    }
-    return;
-  }
+// handleEncoderEvent removed - encoder logic now handled by InputManager
 
-  // Encoder channels A and B - update state on press only (rising edge)
-  if (!pressed) {
-    return;  // Ignore release events for quadrature
-  }
-
-  uint8_t current_a = encoder_state_.last_a;
-  uint8_t current_b = encoder_state_.last_b;
-
-  // Update the changed channel
-  if (col == ENCODER_COL_A) {
-    current_a = 1;
-  } else if (col == ENCODER_COL_B) {
-    current_b = 1;
-  }
-
-  // Quadrature decoding: determine direction from state transitions
-  // Gray code sequence: 00 -> 01 -> 11 -> 10 -> 00 (CW)
-  //                     00 -> 10 -> 11 -> 01 -> 00 (CCW)
-  int direction = 0;
-  uint8_t last_state = (encoder_state_.last_a << 1) | encoder_state_.last_b;
-  uint8_t new_state = (current_a << 1) | current_b;
-
-  // Detect valid transitions
-  if (last_state != new_state) {
-    if ((last_state == 0b00 && new_state == 0b01) ||
-        (last_state == 0b01 && new_state == 0b11) ||
-        (last_state == 0b11 && new_state == 0b10) ||
-        (last_state == 0b10 && new_state == 0b00)) {
-      direction = 1;  // Clockwise
-      encoder_state_.position++;
-    } else if ((last_state == 0b00 && new_state == 0b10) ||
-               (last_state == 0b10 && new_state == 0b11) ||
-               (last_state == 0b11 && new_state == 0b01) ||
-               (last_state == 0b01 && new_state == 0b00)) {
-      direction = -1;  // Counter-clockwise
-      encoder_state_.position--;
-    }
-
-    // Update state
-    encoder_state_.last_a = current_a;
-    encoder_state_.last_b = current_b;
-
-    // Publish event if direction determined
-    if (direction != 0) {
-      publishEncoderTurned(direction, 1);
-    }
-  }
-
-  // Reset channel state after a brief period (handled on next release)
-  // This is handled by the release events we ignore above
-}
-
-void RadioHardware::publishEncoderTurned(int direction, int steps) {
-  if (!event_bus_) {
-    return;
-  }
-
-  events::Event evt(EventType::EncoderTurned);
-#ifdef ARDUINO
-  evt.timestamp = millis();
-#else
-  evt.timestamp = 0;
-#endif
-  evt.value = events::json::object({
-      events::json::string_field("direction", direction > 0 ? "cw" : "ccw"),
-      events::json::number_field("steps", steps),
-  });
-  event_bus_->publish(evt);
-
-  Serial.printf("[Encoder] Turned %s (%d steps, position=%d)\n", 
-                direction > 0 ? "CW" : "CCW", steps, encoder_state_.position);
-}
-
-void RadioHardware::publishEncoderButton(bool pressed) {
-  if (!event_bus_) {
-    return;
-  }
-
-  events::Event evt(EventType::EncoderPressed);
-#ifdef ARDUINO
-  evt.timestamp = millis();
-#else
-  evt.timestamp = 0;
-#endif
-  evt.value = events::json::object({
-      events::json::boolean_field("pressed", pressed),
-  });
-  event_bus_->publish(evt);
-
-  Serial.printf("[Encoder] Button %s\n", pressed ? "PRESSED" : "RELEASED");
-}
+// Encoder event publishing removed - encoder is for local navigation only
+// Device state changes (mode, brightness, preset) are published instead

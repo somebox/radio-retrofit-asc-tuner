@@ -485,3 +485,138 @@ void DisplayManager::showTestPattern() {
 
   Serial.println("Display test pattern shown");
 }
+
+// Text brightness helpers
+bool DisplayManager::isWordCapitalized(const String& text, int start_pos) {
+  int pos = start_pos;
+  bool has_letters = false;
+  
+  while (pos < text.length() && text.charAt(pos) != ' ') {
+    char c = text.charAt(pos);
+    if (c >= 'A' && c <= 'Z') {
+      has_letters = true;
+    } else if (c >= 'a' && c <= 'z') {
+      return false;
+    }
+    pos++;
+  }
+  
+  return has_letters;
+}
+
+uint8_t DisplayManager::getCharacterBrightness(char c, const String& text, int char_pos, bool is_time_display) {
+  const uint8_t TEXT_BRIGHT = 190;
+  const uint8_t TEXT_DEFAULT_BRIGHTNESS = 90;
+  const uint8_t TEXT_DIM = 30;
+  
+  if (is_time_display) {
+    int time_start_pos = text.length() - 8;  // Time starts at position for "12:43:25"
+    return (char_pos >= time_start_pos) ? TEXT_BRIGHT : TEXT_DIM;
+  }
+  
+  // Find the start of the current word
+  int word_start = char_pos;
+  while (word_start > 0 && text.charAt(word_start - 1) != ' ') {
+    word_start--;
+  }
+  
+  // Check if the current word is capitalized
+  if (isWordCapitalized(text, word_start)) {
+    return TEXT_BRIGHT;  // Capitalized words are bright
+  }
+  
+  return (c >= 'a' && c <= 'z') ? TEXT_DIM : TEXT_DEFAULT_BRIGHTNESS;
+}
+
+// SignTextController factory methods
+std::unique_ptr<RetroText::SignTextController> DisplayManager::createModernTextController() {
+  auto controller = std::make_unique<RetroText::SignTextController>(max_characters_, character_width_);
+  controller->setFont(RetroText::MODERN_FONT);
+  controller->setScrollStyle(RetroText::SMOOTH);
+  controller->setScrollSpeed(40);
+  controller->setCharacterSpacing(1);
+  controller->setBrightness(90);
+  
+  // Set up callbacks to use this DisplayManager instance
+  controller->setRenderCallback([this](uint8_t character, int pixel_offset, uint8_t brightness, bool use_alt_font) {
+    uint8_t pattern[6];
+    for (int row = 0; row < 6; row++) {
+      pattern[row] = getCharacterPattern(character, row, use_alt_font);
+    }
+    drawCharacter(pattern, pixel_offset, brightness);
+  });
+  
+  controller->setClearCallback([this]() {
+    clearBuffer();
+  });
+  
+  controller->setDrawCallback([this]() {
+    updateDisplay();
+  });
+  
+  controller->setBrightnessCallback(DisplayManager::getCharacterBrightness);
+  
+  return controller;
+}
+
+std::unique_ptr<RetroText::SignTextController> DisplayManager::createRetroTextController() {
+  auto controller = std::make_unique<RetroText::SignTextController>(max_characters_, character_width_);
+  controller->setFont(RetroText::ARDUBOY_FONT);
+  controller->setScrollStyle(RetroText::CHARACTER);
+  controller->setScrollSpeed(130);
+  controller->setBrightness(90);
+  
+  // Set up callbacks to use this DisplayManager instance
+  controller->setRenderCallback([this](uint8_t character, int pixel_offset, uint8_t brightness, bool use_alt_font) {
+    uint8_t pattern[6];
+    for (int row = 0; row < 6; row++) {
+      pattern[row] = getCharacterPattern(character, row, use_alt_font);
+    }
+    drawCharacter(pattern, pixel_offset, brightness);
+  });
+  
+  controller->setClearCallback([this]() {
+    clearBuffer();
+  });
+  
+  controller->setDrawCallback([this]() {
+    updateDisplay();
+  });
+  
+  controller->setBrightnessCallback(DisplayManager::getCharacterBrightness);
+  
+  return controller;
+}
+
+// Helper for displaying static messages
+void DisplayManager::displayStaticMessage(const String& message, RetroText::Font font, int duration_ms) {
+  auto controller = std::make_unique<RetroText::SignTextController>(max_characters_, character_width_);
+  controller->setFont(font);
+  controller->setScrollStyle(RetroText::STATIC);
+  controller->setBrightness(90);
+  
+  // Set up callbacks
+  controller->setRenderCallback([this](uint8_t character, int pixel_offset, uint8_t brightness, bool use_alt_font) {
+    uint8_t pattern[6];
+    for (int row = 0; row < 6; row++) {
+      pattern[row] = getCharacterPattern(character, row, use_alt_font);
+    }
+    drawCharacter(pattern, pixel_offset, brightness);
+  });
+  
+  controller->setClearCallback([this]() {
+    clearBuffer();
+  });
+  
+  controller->setDrawCallback([this]() {
+    updateDisplay();
+  });
+  
+  controller->setMessage(message);
+  controller->reset();
+  controller->update();
+  
+  if (duration_ms > 0) {
+    delay(duration_ms);
+  }
+}

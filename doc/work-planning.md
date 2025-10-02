@@ -48,6 +48,28 @@ The unified event system, JSON payload handling, bridge architecture, ESPHome in
 - **Features Delivered**:
   - ✅ **TCA8418 Integration**: Encoder channels wired to Row 1, Col 1-3
   - ✅ **Software Quadrature Decoding**: Gray code state machine for direction detection
+
+### ✅ 5. InputManager Refactoring (COMPLETED)
+
+- **Status**: ✅ Fully implemented and tested
+- **Features Delivered**:
+  - ✅ **InputControls**: `ButtonControl`, `EncoderControl`, `SwitchControl` classes
+  - ✅ **InputManager**: Centralized polling of TCA8418 keypad hardware
+  - ✅ **Quadrature Logic**: Full detent counting (1 physical click = 1 position change)
+  - ✅ **RadioHardware Integration**: Owns InputManager, removed obsolete encoder state tracking
+  - ✅ **PresetManager Refactoring**: Now queries InputManager directly instead of events
+  - ✅ **Unit Tests**: 30 comprehensive tests passing (21 input controls + 9 other)
+  - ✅ **Time Abstraction**: Mockable `millis()` for native test environment
+  - ✅ **Long Press Support**: Built-in long press detection in ButtonControl
+- **Benefits**: 
+  - Cleaner separation of concerns, easier testing
+  - More intuitive API: `input.button(3).wasJustPressed()`
+  - Removed ~50 lines of event subscription/handling code
+  - Simplified state management (leverages ButtonControl's built-in timing)
+- **Code Removed**:
+  - Event handler registration/unregistration in PresetManager
+  - Redundant `press_times_` array (now handled by ButtonControl)
+  - `handlePresetPressedEvent` and `handlePresetReleasedEvent` static callbacks
   - ✅ **Event Publishing**: `encoder.turned` and `encoder.pressed` events
   - ✅ **State Tracking**: Position counter and button state management
   - ✅ **Debug Logging**: Serial output for encoder events

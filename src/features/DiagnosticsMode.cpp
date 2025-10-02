@@ -246,17 +246,12 @@ void DiagnosticsMode::handleControlsCommand() {
   }
   
   Serial.println("\n=== CONTROLS MONITOR ===");
-  Serial.println("Monitoring PresetPressed, PresetReleased, EncoderTurned, EncoderPressed");
-  Serial.println("Press Ctrl+C or any key to stop");
+  Serial.println("Note: Input controls are now managed by InputManager");
+  Serial.println("Use InputManager API to query button/encoder state");
+  Serial.println("Press Ctrl+C or any key to return");
   Serial.println();
   
   monitoring_controls_ = true;
-  
-  // Subscribe to control events
-  event_bus_->subscribe(EventType::PresetPressed, controlMonitorCallback, this);
-  event_bus_->subscribe(EventType::PresetReleased, controlMonitorCallback, this);
-  event_bus_->subscribe(EventType::EncoderTurned, controlMonitorCallback, this);
-  event_bus_->subscribe(EventType::EncoderPressed, controlMonitorCallback, this);
   
   // Wait for user to press a key to stop
   while (monitoring_controls_ && active_) {
@@ -420,11 +415,6 @@ void DiagnosticsMode::stopMonitoring() {
   }
   
   if (monitoring_controls_) {
-    // Unsubscribe from control events
-    event_bus_->unsubscribe(EventType::PresetPressed, controlMonitorCallback, this);
-    event_bus_->unsubscribe(EventType::PresetReleased, controlMonitorCallback, this);
-    event_bus_->unsubscribe(EventType::EncoderTurned, controlMonitorCallback, this);
-    event_bus_->unsubscribe(EventType::EncoderPressed, controlMonitorCallback, this);
     monitoring_controls_ = false;
   }
 }
@@ -462,24 +452,7 @@ void DiagnosticsMode::controlMonitorCallback(const events::Event& evt, void* con
   Serial.print("[");
   Serial.print(millis());
   Serial.print("] ");
-  
-  switch (evt.type) {
-    case EventType::PresetPressed:
-      Serial.print("PresetPressed");
-      break;
-    case EventType::PresetReleased:
-      Serial.print("PresetReleased");
-      break;
-    case EventType::EncoderTurned:
-      Serial.print("EncoderTurned");
-      break;
-    case EventType::EncoderPressed:
-      Serial.print("EncoderPressed");
-      break;
-    default:
-      Serial.print("Unknown");
-      break;
-  }
+  Serial.print(evt.type_name);
   
   // Print payload if present
   if (!evt.value.empty()) {

@@ -79,18 +79,16 @@ PresetManager::PresetManager(RadioHardware* hardware, AnnouncementModule* announ
   , mode_changed_(false)
   , release_time_(0)
   , last_update_(0)
-  , handlers_registered_(false)
   , bindings_(DEFAULT_BINDINGS)
 {
   for (std::size_t i = 0; i < kButtonCount; ++i) {
     button_states_[i] = PRESET_IDLE;
     state_change_times_[i] = 0;
-    press_times_[i] = 0;
   }
 }
 
 PresetManager::~PresetManager() {
-  unregisterEventHandlers();
+  // No cleanup needed
 }
 
 bool PresetManager::initialize() {
@@ -101,13 +99,8 @@ bool PresetManager::initialize() {
 
   updateButtonState(active_button_, PRESET_ACTIVE);
   updateLEDs();
- 
-  if (!registerEventHandlers()) {
-    Serial.println("PresetManager: Event handler registration failed");
-    return false;
-  }
 
-  Serial.println("PresetManager initialized");
+  Serial.println("PresetManager initialized (using InputManager)");
   return true;
 }
 
@@ -122,6 +115,10 @@ DisplayMode PresetManager::getSelectedMode() const {
 void PresetManager::update() {
   last_update_ = millis();
 
+  // Check all buttons via InputManager
+  checkButtons();
+
+  // Handle fade transitions
   for (std::size_t i = 0; i < kButtonCount; ++i) {
     if (button_states_[i] == PRESET_TRANSITIONING) {
       if (millis() - release_time_ > FADE_DURATION) {
@@ -137,52 +134,35 @@ void PresetManager::update() {
   }
 }
 
-bool PresetManager::registerEventHandlers() {
-  if (handlers_registered_) {
-    return true;
-  }
-
-  EventBus& bus = eventBus();
-  bool ok = true;
-  ok &= bus.subscribe(EventType::PresetPressed, &PresetManager::handlePresetPressedEvent, this);
-  ok &= bus.subscribe(EventType::PresetReleased, &PresetManager::handlePresetReleasedEvent, this);
-
-  handlers_registered_ = ok;
-  return ok;
-}
-
-void PresetManager::unregisterEventHandlers() {
-  if (!handlers_registered_) {
+void PresetManager::checkButtons() {
+  if (!radio_hardware_) {
     return;
   }
 
-  EventBus& bus = eventBus();
-  bus.unsubscribe(EventType::PresetPressed, &PresetManager::handlePresetPressedEvent, this);
-  bus.unsubscribe(EventType::PresetReleased, &PresetManager::handlePresetReleasedEvent, this);
-  handlers_registered_ = false;
-}
+  auto& input = radio_hardware_->inputManager();
 
-void PresetManager::handlePresetEvent(EventType type, int row, int col) {
-  if (row != 0) {
-    return;
-  }
+  for (int i = 0; i < static_cast<int>(kButtonCount); ++i) {
+    if (!input.hasButton(i)) {
+      continue;
+    }
 
-  if (col < 0 || col >= static_cast<int>(kButtonCount)) {
-    return;
-  }
+    const auto& btn = input.button(i);
 
-  const int button_index = col;
+    // Handle press
+    if (btn.wasJustPressed()) {
+      handleButtonPressed(i);
+    }
 
-  if (type == EventType::PresetPressed) {
-    handleButtonPressed(button_index);
-  } else if (type == EventType::PresetReleased) {
-    handleButtonReleased(button_index);
+    // Handle release
+    if (btn.wasJustReleased()) {
+      bool long_press = btn.wasLongPress(LONG_PRESS_THRESHOLD);
+      handleButtonReleased(i, long_press);
+    }
   }
 }
 
 void PresetManager::handleButtonPressed(int button_index) {
   held_button_ = button_index;
-  press_times_[button_index] = millis();
   updateButtonState(button_index, PRESET_PRESSED);
 
   const PresetButtonBinding& binding = bindings_[button_index];
@@ -195,12 +175,11 @@ void PresetManager::handleButtonPressed(int button_index) {
   }
 }
 
-void PresetManager::handleButtonReleased(int button_index) {
+void PresetManager::handleButtonReleased(int button_index, bool long_press) {
   bool was_held = (held_button_ == button_index);
   held_button_ = -1;
   release_time_ = millis();
 
-  bool long_press = (release_time_ - press_times_[button_index]) >= LONG_PRESS_THRESHOLD;
   updateButtonState(button_index, PRESET_TRANSITIONING);
 
   const PresetButtonBinding& binding = bindings_[button_index];
@@ -226,6 +205,16 @@ void PresetManager::applyAction(int button_index, const PresetButtonBinding& bin
         if (previous >= 0 && previous < static_cast<int>(kButtonCount)) {
           updateButtonState(previous, PRESET_IDLE);
         }
+        
+        // Publish preset selection to ESPHome for automations
+        events::Event evt(EventType::ModeChanged);
+        evt.timestamp = millis();
+        evt.value = events::json::object({
+            events::json::number_field("value", static_cast<int>(current_mode_)),
+            events::json::string_field("name", modeName(current_mode_)),
+            events::json::number_field("preset", button_index),
+        });
+        eventBus().publish(evt);
       }
       break;
     }
@@ -340,34 +329,6 @@ void PresetManager::announce(const char* text, unsigned long duration_ms) {
   announcement_module_->show(String(text), duration_ms);
 }
 
-void PresetManager::handlePresetPressedEvent(const events::Event& event, void* context) {
-  if (!context) {
-    return;
-  }
-
-  auto* self = static_cast<PresetManager*>(context);
-  
-  // Parse JSON payload: {"value":col,"aux":row}
-  String json_str = String(event.value.c_str());
-  int col = parseIntField(json_str, "value", -1);
-  int row = parseIntField(json_str, "aux", 0);
-  
-  self->handlePresetEvent(EventType::PresetPressed, row, col);
-}
-
-void PresetManager::handlePresetReleasedEvent(const events::Event& event, void* context) {
-  if (!context) {
-    return;
-  }
-
-  auto* self = static_cast<PresetManager*>(context);
-  
-  // Parse JSON payload: {"value":col,"aux":row}
-  String json_str = String(event.value.c_str());
-  int col = parseIntField(json_str, "value", -1);
-  int row = parseIntField(json_str, "aux", 0);
-  
-  self->handlePresetEvent(EventType::PresetReleased, row, col);
-}
+// Event handlers removed - PresetManager now queries InputManager directly
 
 

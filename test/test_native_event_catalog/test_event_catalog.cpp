@@ -5,13 +5,13 @@
 namespace {
 
 void test_catalog_lookup_by_type() {
-  const EventCatalogEntry& entry = eventCatalogLookup(EventType::PresetPressed);
+  const EventCatalogEntry& entry = eventCatalogLookup(EventType::BrightnessChanged);
   TEST_ASSERT_EQUAL_UINT16(0, entry.id);
-  TEST_ASSERT_EQUAL_STRING("preset.pressed", entry.name);
+  TEST_ASSERT_EQUAL_STRING("settings.brightness", entry.name);
 }
 
 void test_catalog_lookup_by_id() {
-  const EventCatalogEntry& entry = eventCatalogLookup(7);
+  const EventCatalogEntry& entry = eventCatalogLookup(3);
   TEST_ASSERT_EQUAL(static_cast<int>(EventType::ModeChanged), static_cast<int>(entry.type));
   TEST_ASSERT_EQUAL_STRING("system.mode", entry.name);
 }

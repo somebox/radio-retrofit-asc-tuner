@@ -8,7 +8,7 @@ namespace {
 void test_event_constructor_populates_catalog_fields() {
   events::Event evt(EventType::VolumeChanged);
   TEST_ASSERT_EQUAL(static_cast<int>(EventType::VolumeChanged), static_cast<int>(evt.type));
-  TEST_ASSERT_EQUAL_UINT16(8, evt.type_id);
+  TEST_ASSERT_EQUAL_UINT16(4, evt.type_id);
   TEST_ASSERT_EQUAL_STRING("settings.volume", evt.type_name);
 }
 

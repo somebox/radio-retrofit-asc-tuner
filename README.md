@@ -17,7 +17,7 @@ This firmware interfaces with the controls and defines some basic modes and beha
 - Playlist access: allows user to scroll through more detailed playlist, and provides configuration and navigation options
 - Source mode: switch between internet radio, local media files, spotify, etc. This interfaces with modules that manage the actual playback and audio output, and provide status feedback and control.
 
-The functions will be exposed as a library which can be used inside of an ESPHome project, via external components.
+**Management**: `PresetManager` queries `InputManager` for button states, manages mode selection, LED feedback, and announcements.
 
 ## Hardware and Controls
 
@@ -33,23 +33,35 @@ The functions will be exposed as a library which can be used inside of an ESPHom
 First version: prototype, combining the existing [RetroText](https://github.com/PixelTheater/retrotext) and [Lights n' Buttons](https://github.com/PixelTheater/lights-and-buttons) projects.
 Create ESPHome integration.
 
-## Build and Test
+## Development
 
-Build sample ESPHome project:
-
+**Build ESP32 firmware:**
 ```bash
-esphome compile --upload radio.yaml
+pio run -e esp32doit-devkit-v1  # or esp32-wrover
 ```
 
-Build and upload firmware:
+**Run tests:**
 ```bash
-pio run -e esp32-wrover
+pio test -e native  # 30 tests covering input, events, parsing
 ```
 
-Run native tests:
-
+**ESPHome:**
 ```bash
-pio test -e native
+cd esphome && esphome compile devices/radio.yaml
+```
+
+## Project Structure
+
+```
+/include
+  /hardware     # RadioHardware, PresetManager, HardwareConfig
+  /display      # DisplayManager, SignTextController, Fonts
+  /features     # AnnouncementModule, ClockDisplay, DiagnosticsMode
+  /platform     # InputManager, Events, Time, HomeAssistantBridge
+/src            # Implementation files (mirror /include structure)
+/test           # Native unit tests
+/doc            # Technical documentation
+/esphome        # Home Assistant integration
 ```
 
 

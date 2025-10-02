@@ -6,6 +6,7 @@
 #include <Adafruit_TCA8418.h>
 #include "IS31FL373x.h"
 #include "platform/events/Events.h"
+#include "platform/InputManager.h"
 
 // Forward declarations
 class IHomeAssistantBridge;
@@ -39,13 +40,11 @@ public:
   void showProgress(int progress);  // 0-100% progress bar on preset LEDs
 
   // Helper functions
-  bool isValidKeypress(int key_number) const;
   bool isInitialized() const;
   
-  // Keypad operations
+  // Keypad status (deprecated - use InputManager)
   bool hasKeypadEvent();
   int getKeypadEvent();
-  void configureKeypadMatrix();
   
   // LED operations (high-level interface)
   void setLED(int row, int col, uint8_t brightness);
@@ -62,22 +61,17 @@ public:
   bool isKeypadReady() const { return keypad_ready_; }
   bool isPresetLEDReady() const { return preset_led_ready_; }
   
+  // Input management
+  Input::InputManager& inputManager() { return input_manager_; }
+  const Input::InputManager& inputManager() const { return input_manager_; }
+  
 private:
-  // Encoder state tracking
-  struct EncoderState {
-    uint8_t last_a : 1;
-    uint8_t last_b : 1;
-    uint8_t button_pressed : 1;
-    int8_t position;
-    
-    EncoderState() : last_a(0), last_b(0), button_pressed(0), position(0) {}
-  };
-  EncoderState encoder_state_;
   friend class RadioBridgeHandlerImpl;
 
   // Hardware instances
   Adafruit_TCA8418 keypad_;
   IS31FL3737* preset_led_driver_;
+  Input::InputManager input_manager_;
   
   // Control handlers
   EventBus* event_bus_;
@@ -95,10 +89,6 @@ private:
   bool initializeKeypad();
   bool initializePresetLEDs();
   bool testI2CDevice(uint8_t address, const char* device_name);
-  void handlePresetKeyEvent(int row, int col, bool pressed);
-  void handleEncoderEvent(int col, bool pressed);
-  void publishEncoderTurned(int direction, int steps);
-  void publishEncoderButton(bool pressed);
 };
 
 #endif // RADIO_HARDWARE_H

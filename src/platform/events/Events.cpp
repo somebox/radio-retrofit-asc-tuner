@@ -4,15 +4,11 @@
 
 namespace {
 constexpr EventCatalogEntry kCatalog[] = {
-  {EventType::PresetPressed, 0, "preset.pressed"},
-  {EventType::PresetReleased, 1, "preset.released"},
-  {EventType::EncoderTurned, 2, "encoder.turned"},
-  {EventType::EncoderPressed, 3, "encoder.pressed"},
-  {EventType::BrightnessChanged, 4, "settings.brightness"},
-  {EventType::AnnouncementRequested, 5, "announcement.requested"},
-  {EventType::AnnouncementCompleted, 6, "announcement.completed"},
-  {EventType::ModeChanged, 7, "system.mode"},
-  {EventType::VolumeChanged, 8, "settings.volume"}
+  {EventType::BrightnessChanged, 0, "settings.brightness"},
+  {EventType::AnnouncementRequested, 1, "announcement.requested"},
+  {EventType::AnnouncementCompleted, 2, "announcement.completed"},
+  {EventType::ModeChanged, 3, "system.mode"},
+  {EventType::VolumeChanged, 4, "settings.volume"}
 };
 constexpr std::size_t kCatalogSize = sizeof(kCatalog) / sizeof(kCatalog[0]);
 constexpr EventCatalogEntry kUnknownEntry{EventType::Count, static_cast<uint16_t>(EventType::Count), "unknown"};

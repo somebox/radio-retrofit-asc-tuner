@@ -28,21 +28,22 @@ struct Event {
 
 ## Event Catalog
 
-### Current Events (v1.0)
+### Current Events
 
-| ID | Name | Enum | Direction | Payload | Description |
+| ID | Name | Enum | Consumers | Payload | Description |
 |----|------|------|-----------|---------|-------------|
-| 0  | `preset.pressed` | PresetPressed | HW→Comp | `value`, `aux?` | Button pressed |
-| 1  | `preset.released` | PresetReleased | HW→Comp | `value`, `aux?` | Button released |
-| 2  | `encoder.turned` | EncoderTurned | HW→Comp | `direction`, `steps` | Encoder rotation |
-| 3  | `encoder.pressed` | EncoderPressed | HW→Comp | `pressed` | Encoder button |
-| 4  | `settings.brightness` | BrightnessChanged | Bidir | `value` (0-255) | Display brightness |
-| 5  | `announcement.requested` | AnnouncementRequested | Comp→Mod | `text`, `priority?` | Show message |
-| 6  | `announcement.completed` | AnnouncementCompleted | Mod→Comp | empty | Message done |
-| 7  | `system.mode` | ModeChanged | Bidir | `value`, `name?`, `preset?` | Mode change |
-| 8  | `settings.volume` | VolumeChanged | Bidir | `value` (0-255) | Volume level |
+| 0  | `settings.brightness` | BrightnessChanged | ESPHome | `value` (0-255) | Display brightness |
+| 1  | `announcement.requested` | AnnouncementRequested | Display | `text`, `priority?` | Show message |
+| 2  | `announcement.completed` | AnnouncementCompleted | Modules | empty | Message done |
+| 3  | `system.mode` | ModeChanged | ESPHome | `value`, `name?`, `preset?` | Active mode/preset |
+| 4  | `settings.volume` | VolumeChanged | ESPHome | `value` (0-255) | Volume level |
 
-**Direction**: HW→Comp (hardware to components), Comp→Mod (components to modules), Mod→Comp (modules to components), Bidir (bidirectional firmware/HA)
+**Architecture**: 
+- **Hardware inputs** (button presses, encoder turns): Managed by `InputManager`, used locally by application
+- **Device state** (preset selection, mode, brightness, volume): Published to ESPHome for automations
+- **Internal communication** (announcements): Event bus within firmware
+
+**Example**: When preset button 3 is pressed, `InputManager` detects the press, `PresetManager` handles the logic and updates state, then publishes `ModeChanged` with preset info. Home Assistant sees the preset selection, not the button press.
 
 ### Planned Events
 

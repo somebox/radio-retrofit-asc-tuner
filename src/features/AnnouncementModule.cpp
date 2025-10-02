@@ -1,7 +1,7 @@
 #include "features/AnnouncementModule.h"
 
-// Forward declaration of display function from main.cpp
-extern void display_static_message(String message, bool use_modern_font = true, int display_time_ms = 0);
+// Forward declaration of display function from main.cpp (defined in DisplayManager.h)
+extern void display_static_message(String message, bool use_modern_font, int display_time_ms);
 
 AnnouncementModule::AnnouncementModule(DisplayManager* display_manager)
   : display_manager_(display_manager), state_(ANNOUNCEMENT_IDLE), 

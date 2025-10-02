@@ -2,23 +2,11 @@
 #include <Wire.h>
 #include <WiFiManager.h>
 
-#include "platform/WifiTimeLib.h"
-#include "display/DisplayManager.h"
-#include "features/ClockDisplay.h"
-#include "features/MeteorAnimation.h"
-#include "hardware/RadioHardware.h"
-#include "hardware/PresetManager.h"
-#include "features/AnnouncementModule.h"
-#include "platform/events/Events.h"
-#include "platform/HomeAssistantBridge.h"
-#include "platform/I2CScan.h"
-#include "features/messages.h"
-#include "display/SignTextController.h"
-#include "display/DisplayMode.h"
-
-#ifdef ENABLE_DIAGNOSTICS
-  #include "features/DiagnosticsMode.h"
-#endif
+// Subsystem headers
+#include "display.h"
+#include "hardware.h"
+#include "platform.h"
+#include "features.h"
 
 // Configuration constants
 #define NUM_BOARDS 3
@@ -54,15 +42,17 @@ DisplayMode current_mode = DisplayMode::MODERN;
 // Global brightness level management
 uint8_t global_brightness = 128;
 
+// SignTextController instances for demonstration
+std::unique_ptr<RetroText::SignTextController> modern_sign;
+std::unique_ptr<RetroText::SignTextController> retro_sign;
+
 // Forward declarations
 void configModeCallback(WiFiManager *myWiFiManager);
 void adjustGlobalBrightness(bool increase);
 void showBrightnessAnnouncement();
 void select_random_message();
-
-// SignTextController instances for demonstration
-std::unique_ptr<RetroText::SignTextController> modern_sign;
-std::unique_ptr<RetroText::SignTextController> retro_sign;
+void setupWiFi();
+void setupModules();
 
 // Message tracking
 int current_message_index = 0;
@@ -76,122 +66,12 @@ const String MODULE_ANNOUNCEMENTS[] = {
   "Meteor Animation"  // MODE_ANIMATION
 };
 
-// Text formatting helper
-bool is_word_capitalized(String text, int start_pos) {
-  int pos = start_pos;
-  bool has_letters = false;
-  
-  while (pos < text.length() && text.charAt(pos) != ' ') {
-    char c = text.charAt(pos);
-    if (c >= 'A' && c <= 'Z') {
-      has_letters = true;
-    } else if (c >= 'a' && c <= 'z') {
-      return false;
-    }
-    pos++;
-  }
-  
-  return has_letters;
-}
-
-// Determine brightness level based on character and context
-uint8_t get_character_brightness(char c, String text, int char_pos, bool is_time_display = false) {
-  const uint8_t TEXT_BRIGHT = 190;
-  const uint8_t TEXT_DEFAULT_BRIGHTNESS = 90;
-  const uint8_t TEXT_DIM = 30;
-  
-  if (is_time_display) {
-    int time_start_pos = text.length() - 8;  // Time starts at position for "12:43:25"
-    return (char_pos >= time_start_pos) ? TEXT_BRIGHT : TEXT_DIM;
-  }
-  
-  // Find the start of the current word
-  int word_start = char_pos;
-  while (word_start > 0 && text.charAt(word_start - 1) != ' ') {
-    word_start--;
-  }
-  
-  // Check if the current word is capitalized
-  if (is_word_capitalized(text, word_start)) {
-    return TEXT_BRIGHT;  // Capitalized words are bright
-  }
-  
-  return (c >= 'a' && c <= 'z') ? TEXT_DIM : TEXT_DEFAULT_BRIGHTNESS;
-}
-
-// Callback functions for SignTextController integration
-void render_character_callback(uint8_t character, int pixel_offset, uint8_t brightness, bool use_alt_font) {
-  if (display_manager) {
-    uint8_t pattern[6];
-    for (int row = 0; row < 6; row++) {
-      pattern[row] = display_manager->getCharacterPattern(character, row, use_alt_font);
-    }
-    display_manager->drawCharacter(pattern, pixel_offset, brightness);
-  }
-}
-
-void clear_display_callback() {
-  if (display_manager) {
-    display_manager->clearBuffer();
-  }
-}
-
-void draw_display_callback() {
-  if (display_manager) {
-    display_manager->updateDisplay();
-  }
-}
-
-uint8_t brightness_callback(char c, String text, int char_pos, bool is_time_display) {
-  return get_character_brightness(c, text, char_pos, is_time_display);
-}
-
-// Initialize the SignTextController instances
-void init_sign_controllers() {
-  if (!display_manager) {
-    Serial.println("Error: DisplayManager not initialized");
-    return;
-  }
-  
-  int max_chars = display_manager->getMaxCharacters();
-  int char_width = display_manager->getCharacterWidth();
-  
-  // Create modern font controller
-  modern_sign = std::make_unique<RetroText::SignTextController>(max_chars, char_width);
-  modern_sign->setFont(RetroText::MODERN_FONT);
-  modern_sign->setScrollStyle(RetroText::SMOOTH);
-  modern_sign->setScrollSpeed(40);
-  modern_sign->setCharacterSpacing(1);
-  modern_sign->setBrightness(90);
-  modern_sign->setRenderCallback(render_character_callback);
-  modern_sign->setClearCallback(clear_display_callback);
-  modern_sign->setDrawCallback(draw_display_callback);
-  modern_sign->setBrightnessCallback(brightness_callback);
-  
-  // Create retro font controller
-  retro_sign = std::make_unique<RetroText::SignTextController>(max_chars, char_width);
-  retro_sign->setFont(RetroText::ARDUBOY_FONT);
-  retro_sign->setScrollStyle(RetroText::CHARACTER);
-  retro_sign->setScrollSpeed(130);
-  retro_sign->setBrightness(90);
-  retro_sign->setRenderCallback(render_character_callback);
-  retro_sign->setClearCallback(clear_display_callback);
-  retro_sign->setDrawCallback(draw_display_callback);
-  retro_sign->setBrightnessCallback(brightness_callback);
-  
-  Serial.println("SignTextController instances initialized");
-}
-
-// Helper function to display a static message
+// Helper function for backward compatibility (calls DisplayManager)
 void display_static_message(String message, bool use_modern_font, int duration_ms) {
-  RetroText::SignTextController* sign = use_modern_font ? modern_sign.get() : retro_sign.get();
-  if (sign) {
-    sign->setScrollStyle(RetroText::STATIC);
-    sign->setMessage(message);
-    sign->reset();
-    sign->update();
+  if (display_manager) {
+    RetroText::Font font = use_modern_font ? RetroText::MODERN_FONT : RetroText::ARDUBOY_FONT;
+    display_manager->displayStaticMessage(message, font, duration_ms);
   }
-  delay(duration_ms);
 }
 
 // WiFiManager callback for AP mode
@@ -232,123 +112,8 @@ void select_random_message() {
   Serial.printf("Selected message %d: %s\n", current_message_index, current_message.c_str());
 }
 
-void setup() {
-  Serial.begin(115200);
-  delay(1000);
-  
-  Serial.println("\n=== Radio Retrofit Firmware ===");
-  
-  // Initialize I2C
-  Serial.println("Initializing I2C with default ESP32 pins...");
-  Wire.begin(); // SDA=GPIO21, SCL=GPIO22 (ESP32 defaults)
-  Wire.setClock(800000); // use 800 kHz I2C
-  Serial.println("I2C initialized: SDA=GPIO21, SCL=GPIO22");
-  delay(100);
-
-  Serial.println("Retrotext Starting");
-  
-  // Initialize display manager first
-  Serial.println("Initializing DisplayManager...");
-  display_manager = new DisplayManager(NUM_BOARDS, WIDTH, HEIGHT);
-  if (!display_manager->initialize()) {
-    Serial.println("FATAL: DisplayManager initialization failed!");
-    #ifdef ENABLE_DIAGNOSTICS
-      diagnostics = new DiagnosticsMode(radio_hardware, &eventBus());
-      g_diagnostics_instance = diagnostics;
-      diagnostics->begin();
-      diagnostics->activate("DisplayManager init failed");
-      return;  // Stay in diagnostics
-    #else
-      while(1) delay(1000);
-    #endif
-  }
-  
-  display_manager->printDisplayConfiguration();
-  display_manager->scanI2C();
-  
-  global_brightness = 128;
-  display_manager->setBrightnessLevel(global_brightness);
-
-  if (!display_manager->verifyDrivers()) {
-    Serial.println("WARNING: Some display drivers failed verification!");
-    delay(3000);
-  }
-  
-  // Initialize modules
-  Serial.println("Initializing ClockDisplay...");
-  clock_display = new ClockDisplay(display_manager, &wifiTimeLib);
-  clock_display->initialize();
-  
-  Serial.println("Initializing MeteorAnimation...");
-  meteor_animation = new MeteorAnimation(display_manager);
-  meteor_animation->initialize();
-  
-  // Initialize Home Assistant Bridge
-  Serial.println("Initializing HomeAssistant Bridge...");
-  home_assistant_bridge = new HomeAssistantBridge();
-  home_assistant_bridge->begin();
-
-  // Initialize Radio Hardware
-  Serial.println("Initializing RadioHardware...");
-  radio_hardware = new RadioHardware();
-  radio_hardware->setEventBus(&eventBus());
-  radio_hardware->setBridge(home_assistant_bridge);
-  
-  #ifdef ENABLE_DIAGNOSTICS
-    // Create diagnostics after hardware is created
-    if (!diagnostics) {
-      diagnostics = new DiagnosticsMode(radio_hardware, &eventBus());
-      g_diagnostics_instance = diagnostics;
-      diagnostics->begin();
-    }
-  #endif
-  
-  if (!radio_hardware->initialize()) {
-    Serial.println("*** ERROR: RadioHardware initialization failed ***");
-    #ifdef ENABLE_DIAGNOSTICS
-      diagnostics->activate("RadioHardware init failed");
-      return;  // Stay in diagnostics
-    #else
-      Serial.println("WARNING: RadioHardware initialization had issues");
-    #endif
-  } else {
-    Serial.println("RadioHardware initialized successfully");
-    radio_hardware->setGlobalBrightness(global_brightness);
-
-    // Initialize AnnouncementModule and PresetManager
-    Serial.println("Initializing AnnouncementModule...");
-    announcement_module = new AnnouncementModule(display_manager);
-
-    Serial.println("Initializing PresetManager...");
-    preset_manager = new PresetManager(radio_hardware, announcement_module);
-    if (!preset_manager->initialize()) {
-      Serial.println("WARNING: PresetManager initialization failed");
-    } else {
-      Serial.println("PresetManager initialized successfully");
-    }
-  }
-  
-  // Initialize messages and sign controllers
-  initializeMessages();
-  current_message = getMessage(0);
-  init_sign_controllers();
-
-  // Show initialization progress
-  if (radio_hardware) {
-    radio_hardware->showProgress(0);
-  }
-
-  // Display test pattern
-  Serial.println("Self Test...");
-  if (display_manager) {
-    display_manager->showTestPattern();
-    delay(250);
-  }
-  if (radio_hardware) {
-    radio_hardware->showProgress(20);
-  }
-
-  // WiFi setup
+// WiFi setup helper
+void setupWiFi() {
   Serial.println("Setting up WiFi...");
   display_static_message("WiFi Setup", true, 1000);
   if (radio_hardware) {
@@ -406,9 +171,75 @@ void setup() {
       radio_hardware->updatePresetLEDs();
     }
   }
+}
+
+// Module initialization helper
+void setupModules() {
+  // Create feature modules (they handle their own init failures)
+  clock_display = new ClockDisplay(display_manager, &wifiTimeLib);
+  clock_display->initialize();
   
-  Serial.println("Initialization complete, starting demo mode...");
-  display_static_message("Ready", true, 500);
+  meteor_animation = new MeteorAnimation(display_manager);
+  meteor_animation->initialize();
+  
+  home_assistant_bridge = new HomeAssistantBridge();
+  home_assistant_bridge->begin();
+  
+  announcement_module = new AnnouncementModule(display_manager);
+
+  // Create hardware interface
+  radio_hardware = new RadioHardware();
+  radio_hardware->setEventBus(&eventBus());
+  radio_hardware->setBridge(home_assistant_bridge);
+  radio_hardware->initialize();  // Handles failures internally
+  radio_hardware->setGlobalBrightness(global_brightness);
+  
+  #ifdef ENABLE_DIAGNOSTICS
+    diagnostics = new DiagnosticsMode(radio_hardware, &eventBus());
+    g_diagnostics_instance = diagnostics;
+    diagnostics->begin();
+  #endif
+
+  // Create preset manager (depends on hardware + announcement)
+  preset_manager = new PresetManager(radio_hardware, announcement_module);
+  preset_manager->initialize();  // Handles failures internally
+}
+
+void setup() {
+  Serial.begin(115200);
+  delay(1000);
+  Serial.println("\n=== Radio Retrofit Firmware ===");
+  
+  // Initialize I2C bus (critical - fail fast if this doesn't work)
+  Wire.begin();  // ESP32 defaults: SDA=GPIO21, SCL=GPIO22
+  Wire.setClock(800000);
+  Serial.println("I2C: 800kHz, SDA=21, SCL=22");
+  
+  // Create DisplayManager (hardware may fail gracefully)
+  display_manager = new DisplayManager(NUM_BOARDS, WIDTH, HEIGHT);
+  display_manager->initialize();
+  display_manager->setBrightnessLevel(128);
+  
+  // Create all modules
+  setupModules();
+  
+  // Initialize message system
+  initializeMessages();
+  current_message = getMessage(0);
+  modern_sign = display_manager->createModernTextController();
+  retro_sign = display_manager->createRetroTextController();
+
+  // Self-test and WiFi (optional)
+  if (display_manager) {
+    display_manager->showTestPattern();
+    delay(250);
+  }
+  
+  setupWiFi();
+  
+  if (display_manager) {
+    display_static_message("Ready", true, 500);
+  }
   if (radio_hardware) {
     radio_hardware->clearAllPresetLEDs();
     radio_hardware->updatePresetLEDs();

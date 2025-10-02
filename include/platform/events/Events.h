@@ -5,11 +5,7 @@
 #include <string>
 
 enum class EventType : uint16_t {
-  PresetPressed = 0,
-  PresetReleased,
-  EncoderTurned,
-  EncoderPressed,
-  BrightnessChanged,
+  BrightnessChanged = 0,
   AnnouncementRequested,
   AnnouncementCompleted,
   ModeChanged,
@@ -32,7 +28,7 @@ const EventCatalogEntry& eventCatalogLookup(const char* name);
 namespace events {
 
 struct Event {
-  EventType type{EventType::PresetPressed};
+  EventType type{EventType::ModeChanged};
   uint16_t type_id{0};
   const char* type_name{nullptr};
   uint32_t timestamp{0};
