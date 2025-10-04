@@ -5,14 +5,19 @@ external_components:
 
 esphome:
   name: retro-radio
-  friendly_name: Retro Radio Bridge
+  friendly_name: Retro Radio
+  libraries:
+    - "SPI"
+    - "Adafruit BusIO"
 
 esp32:
   board: esp32dev
   framework:
     type: arduino
+    platform_version: 6.9.0
 
 logger:
+  level: DEBUG
 
 api:
 
@@ -22,62 +27,80 @@ ota:
 wifi:
   ssid: !secret wifi_ssid
   password: !secret wifi_password
+  ap:
+    ssid: "Retro Radio Fallback"
 
-uart:
-  id: radio_bus
-  tx_pin: GPIO17
-  rx_pin: GPIO16
-  baud_rate: 115200
+# I2C bus configuration
+i2c:
+  sda: GPIO21
+  scl: GPIO22
+  scan: true
+  frequency: 400kHz
 
-# Radio controller component - handles all state synchronization
+# Radio controller component - manages all hardware
 radio_controller:
-  id: bridge
-  uart_id: radio_bus
+  id: radio
+  # Preset button triggers for HA automations
+  on_preset:
+    - preset_num: 0
+      then:
+        - homeassistant.service:
+            service: script.play_radio_preset_1
+    - preset_num: 1
+      then:
+        - homeassistant.service:
+            service: script.play_radio_preset_2
+    - preset_num: 2
+      then:
+        - homeassistant.service:
+            service: script.play_radio_preset_3
+    - preset_num: 3
+      then:
+        - homeassistant.service:
+            service: script.play_radio_preset_4
+    - preset_num: 4
+      then:
+        - homeassistant.service:
+            service: script.play_radio_preset_5
+    - preset_num: 5
+      then:
+        - homeassistant.service:
+            service: script.play_radio_preset_6
+    - preset_num: 6
+      then:
+        - homeassistant.service:
+            service: script.play_radio_preset_7
 
-# Basic mode selection
+# Display mode selection
 select:
   - platform: template
-    name: "Radio Mode"
-    id: radio_mode_select
-    options: ["radio", "playlist", "clock", "animation"]
+    name: "Display Mode"
+    id: display_mode
+    options: 
+      - "radio"
+      - "clock"
+      - "animation"
     initial_option: "radio"
+    optimistic: false
     set_action:
-      - lambda: |-
-          int mode = (x == "radio") ? 0 : (x == "playlist") ? 1 : (x == "clock") ? 2 : 3;
-          id(bridge).send_mode_command(mode, x);
+      - lambda: id(radio).set_mode(x);
 
-# Volume control
+# Brightness control (synchronized with potentiometer)
 number:
   - platform: template
-    name: "Radio Volume"
-    id: radio_volume
+    name: "Display Brightness"
+    id: display_brightness
     min_value: 0
     max_value: 255
     step: 1
     initial_value: 128
+    optimistic: false
     set_action:
-      - lambda: id(bridge).send_volume_command((int) x);
+      - lambda: id(radio).set_brightness((int)x);
 
-# Basic preset switch for testing
-switch:
-  - platform: template
-    name: "Preset 1 – Jazz"
-    id: preset_1_jazz
-    turn_on_action:
-      - lambda: id(bridge).send_mode_command(0, "radio", 1);
-      - delay: 500ms
-      - switch.turn_off: preset_1_jazz
-
-# Display current metadata
+# Metadata display (track info, etc.)
 text_sensor:
   - platform: template
-    name: "Radio Metadata"
-    id: radio_metadata
+    name: "Display Text"
+    id: display_text
     icon: "mdi:music-note"
-
-# Current state sensors
-sensor:
-  - platform: template
-    name: "Radio Current Volume"
-    id: radio_current_volume
-    icon: "mdi:volume-high"

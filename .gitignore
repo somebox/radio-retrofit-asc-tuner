@@ -5,3 +5,9 @@
 .vscode/ipch
 .DS_Store
 .vscode
+esphome/secrets.yaml
+esphome/devices/secrets.yaml
+esphome/**/__pycache__/
+esphome/**/.esphome/
+esphome/devices/.esphome/
+*.yaml.old
