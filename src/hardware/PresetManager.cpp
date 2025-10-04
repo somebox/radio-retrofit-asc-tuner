@@ -1,4 +1,5 @@
 #include "hardware/PresetManager.h"
+#include "hardware/HardwareConfig.h"
 #include "features/AnnouncementModule.h"
 #include "hardware/RadioHardware.h"
 #include "platform/JsonHelpers.h"
@@ -32,18 +33,6 @@ const char* modeName(DisplayMode mode) {
 }
 
 }  // namespace
-
-const PresetManager::PresetConfig PresetManager::BUTTON_CONFIG[kButtonCount] = {
-  {0, 0, 0, 0, 0},
-  {1, 0, 1, 0, 1},
-  {2, 0, 2, 0, 2},
-  {3, 0, 3, 0, 3},
-  {4, 0, 4, 0, 4},
-  {5, 0, 5, 0, 5},
-  {6, 0, 6, 0, 6},
-  {7, 0, 7, 0, 7},
-  {8, 0, 8, 0, 8},
-};
 
 const PresetButtonBinding PresetManager::DEFAULT_BINDINGS[kButtonCount] = {
   {PresetAction::SelectMode, static_cast<int>(DisplayMode::MODERN), "Modern", true},
@@ -165,6 +154,17 @@ void PresetManager::handleButtonPressed(int button_index) {
   held_button_ = button_index;
   updateButtonState(button_index, PRESET_PRESSED);
 
+  // Log preset button press using the name from HardwareConfig
+  using namespace HardwareConfig;
+  const auto* preset_btn = getPresetButton(button_index);
+  const auto* preset_led = getPresetLED(button_index);
+  if (preset_btn && preset_led) {
+    Serial.printf("[PresetManager] Button index %d: %s (LED: SW%d CS%d)\n", 
+                  button_index, preset_btn->name, preset_led->sw_pin, preset_led->cs_pin);
+  } else {
+    Serial.printf("[PresetManager] Button %d pressed (config error!)\n", button_index);
+  }
+
   const PresetButtonBinding& binding = bindings_[button_index];
   if (binding.label) {
     announce(binding.label, 500);  // quick feedback on press
@@ -179,6 +179,15 @@ void PresetManager::handleButtonReleased(int button_index, bool long_press) {
   bool was_held = (held_button_ == button_index);
   held_button_ = -1;
   release_time_ = millis();
+
+  // Log preset button release using the name from HardwareConfig
+  using namespace HardwareConfig;
+  const auto* preset_btn = getPresetButton(button_index);
+  if (preset_btn) {
+    Serial.printf("%s released (%s)\n", preset_btn->name, long_press ? "long" : "short");
+  } else {
+    Serial.printf("Button %d released (%s)\n", button_index, long_press ? "long" : "short");
+  }
 
   updateButtonState(button_index, PRESET_TRANSITIONING);
 
@@ -200,10 +209,13 @@ void PresetManager::applyAction(int button_index, const PresetButtonBinding& bin
       int previous = active_button_;
       active_button_ = button_index;
       if (previous != active_button_) {
+        Serial.printf("Mode change: button %d -> button %d (%s)\n", 
+                      previous, active_button_, modeName(static_cast<DisplayMode>(binding.value)));
         mode_changed_ = true;
         current_mode_ = static_cast<DisplayMode>(binding.value);
         if (previous >= 0 && previous < static_cast<int>(kButtonCount)) {
           updateButtonState(previous, PRESET_IDLE);
+          Serial.printf("  Previous button %d set to IDLE\n", previous);
         }
         
         // Publish preset selection to ESPHome for automations
@@ -281,29 +293,37 @@ void PresetManager::updateLEDs() {
 
   radio_hardware_->clearAllPresetLEDs();
 
-  for (std::size_t i = 0; i < kButtonCount; ++i) {
+  // Only light the active preset LED, all others should be off
+  // This ensures clean state - only one LED lit at a time for mode presets
+  for (std::size_t i = 0; i < kButtonCount && i < HardwareConfig::NUM_PRESETS; ++i) {
     uint8_t brightness = 0;
-    switch (button_states_[i]) {
-      case PRESET_IDLE:
-        brightness = 0;
-        break;
-    case PRESET_PRESSED:
-      brightness = 255;
-        break;
-      case PRESET_TRANSITIONING:
-        brightness = 128;
-        break;
-      case PRESET_ACTIVE:
-        brightness = 128;
-        break;
-      default:
-        brightness = 0;
-        break;
+    
+    // Only the active button should be lit
+    // PRESSED state during button press, TRANSITIONING during fade, ACTIVE when settled
+    if (static_cast<int>(i) == active_button_) {
+      switch (button_states_[i]) {
+        case PRESET_PRESSED:
+          brightness = 255;
+          break;
+        case PRESET_TRANSITIONING:
+          brightness = 128;
+          break;
+        case PRESET_ACTIVE:
+          brightness = 128;
+          break;
+        default:
+          brightness = 0;
+          break;
+      }
     }
+    // All non-active buttons should be off (forced to 0)
 
     if (brightness > 0) {
-      const auto& cfg = BUTTON_CONFIG[i];
-      radio_hardware_->setLED(cfg.led_row, cfg.led_col, brightness);
+      // Get LED position from HardwareConfig
+      const auto* led = HardwareConfig::getPresetLED(i);
+      if (led) {
+        radio_hardware_->setLED(led->sw_pin, led->cs_pin, brightness);
+      }
     }
   }
 

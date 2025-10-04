@@ -6,7 +6,7 @@ The AS-5000E tuner from the late 1970s was an early digital tuner which featured
 
 ![Radio Retrofit](./doc/hero.jpg)
 
-The display was originally a 7-segment frequency display, replaced with [RetroText](https://github.com/PixelTheater/retrotext) to form a custom 18x char 4x6 LED matrix. The buttons and LEDs are controlled with the [Lights n' Buttons](https://github.com/PixelTheater/lights-and-buttons) PCB, which features the IS37FL3737 LED driver for the matrix, and the TCA8418 keypad controller. There's a single big tuner knob which has been re-wired to a pushbutton rotary encoder. This will be used to change the station or preset, or navigate menus and playlists.
+The display was originally a 7-segment frequency display, replaced with [RetroText](https://github.com/PixelTheater/retrotext) to form a custom 18-char 4×6 LED matrix display. The buttons and LEDs are controlled with the [Lights n' Buttons](https://github.com/PixelTheater/lights-and-buttons) PCB, which features the IS31FL3737 LED driver (12×11 usable matrix) and the TCA8418 keypad controller. There's a single big tuner knob which has been re-wired to a pushbutton rotary encoder for changing stations, selecting presets, and navigating menus.
 
 ## Overview of Firmware
 
@@ -21,11 +21,10 @@ This firmware interfaces with the controls and defines some basic modes and beha
 
 ## Hardware and Controls
 
-- Display: 3x RetroText modules, each with 6 characters, for a total of 18 4x6 pixel characters. The I2C addresses are 0x50, 0x51, and 0x52 (GND, VCC, and SDA).
-- Keypad: 4x6 matrix of buttons, controlled by the TCA8418 keypad controller. The I2C address is 0x53 (SCL).
-- Rotary Encoder with push button, controlled with the TCA.
-- Status LED: built-in LED on the ESP32, used to indicate status.
-- Power Supply: 5V from external supply.
+- **Display**: 3× [RetroText](https://github.com/PixelTheater/retrotext) modules, each with 6 characters, for a total of 18 4×6 pixel characters. I2C addresses: 0x50, 0x5A, 0x5F (GND, VCC, SDA).
+- **LED & Button Panel**: [Lights-and-Buttons](https://github.com/PixelTheater/lights-and-buttons) module with IS31FL3737 LED driver (12×12 matrix) and TCA8418 keypad controller. I2C addresses: 0x55 (LEDs), 0x34 (keypad).
+- **Rotary Encoder**: Pushbutton rotary encoder connected to TCA8418 keypad matrix.
+- **Power**: 5V external supply, 3.3V logic via ESP32.
 
 
 ## Project Progress

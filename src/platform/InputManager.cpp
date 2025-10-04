@@ -21,6 +21,10 @@ void InputManager::registerSwitch(int id, int num_positions) {
   switches_.emplace(id, SwitchControl(num_positions));
 }
 
+void InputManager::registerAnalog(int id, int pin, int deadzone, unsigned long min_update_interval_ms) {
+  analogs_.emplace(id, AnalogControl(pin, deadzone, min_update_interval_ms));
+}
+
 // Query API
 ButtonControl& InputManager::button(int id) {
   return buttons_.at(id);
@@ -34,6 +38,10 @@ SwitchControl& InputManager::switch_(int id) {
   return switches_.at(id);
 }
 
+AnalogControl& InputManager::analog(int id) {
+  return analogs_.at(id);
+}
+
 const ButtonControl& InputManager::button(int id) const {
   return buttons_.at(id);
 }
@@ -44,6 +52,10 @@ const EncoderControl& InputManager::encoder(int id) const {
 
 const SwitchControl& InputManager::switch_(int id) const {
   return switches_.at(id);
+}
+
+const AnalogControl& InputManager::analog(int id) const {
+  return analogs_.at(id);
 }
 
 // Main update loop
@@ -60,6 +72,9 @@ void InputManager::update() {
   for (auto& pair : switches_) {
     pair.second.update(current_time_);
   }
+  for (auto& pair : analogs_) {
+    pair.second.update(current_time_);
+  }
   
   // Second: poll keypad hardware for new events
   if (keypad_) {
@@ -68,16 +83,26 @@ void InputManager::update() {
       processKeypadEvent(event);
     }
   }
+  
+  // Third: poll analog inputs to read new values
+  for (auto& pair : analogs_) {
+    pair.second.poll(current_time_);
+  }
 }
 
 // Process raw keypad event and dispatch to appropriate control
 void InputManager::processKeypadEvent(int event) {
-  bool pressed = event & 0x80;
+  // TCA8418 format: bit 7 = 1 (press), bit 7 = 0 (release)
+  // Per Adafruit example and datasheet Table 1
+  bool pressed = (event & 0x80) != 0;
   int key_number = (event & 0x7F) - 1;  // Convert to 0-based
   
   // Calculate row/col from key number
   int row = key_number / HardwareConfig::KEYPAD_COLS;
   int col = key_number % HardwareConfig::KEYPAD_COLS;
+  
+  Serial.printf("[InputManager] Raw event: 0x%02X → row=%d, col=%d, %s\n", 
+                event, row, col, pressed ? "PRESS" : "RELEASE");
   
   // Route to appropriate handler
   if (row == HardwareConfig::ENCODER_ROW && 
@@ -85,8 +110,21 @@ void InputManager::processKeypadEvent(int event) {
       col <= HardwareConfig::ENCODER_COL_BUTTON) {
     handleEncoderEvent(col, pressed);
   }
-  else if (row == 0 && col < HardwareConfig::NUM_PRESETS) {
-    handleButtonEvent(col, pressed);  // Preset buttons map directly to columns
+  else if (row == HardwareConfig::PRESET_BUTTON_ROW) {
+    // Find which preset button this is based on column
+    int found_index = -1;
+    for (int i = 0; i < HardwareConfig::NUM_PRESETS; i++) {
+      if (col == HardwareConfig::PRESET_BUTTONS[i].col) {
+        found_index = i;
+        Serial.printf("[InputManager] Matched preset: col %d → index %d (%s)\n",
+                      col, i, HardwareConfig::PRESET_BUTTONS[i].name);
+        handleButtonEvent(i, pressed);
+        break;
+      }
+    }
+    if (found_index == -1) {
+      Serial.printf("[InputManager] WARNING: No preset found for row=%d, col=%d\n", row, col);
+    }
   }
   // Additional button/control mappings can be added here
 }
@@ -94,10 +132,16 @@ void InputManager::processKeypadEvent(int event) {
 // Handle preset button events
 void InputManager::handleButtonEvent(int button_id, bool pressed) {
   if (buttons_.count(button_id)) {
+    bool accepted = false;
     if (pressed) {
-      buttons_.at(button_id).onPress(current_time_);
+      accepted = buttons_.at(button_id).onPress(current_time_);
     } else {
-      buttons_.at(button_id).onRelease(current_time_);
+      accepted = buttons_.at(button_id).onRelease(current_time_);
+    }
+    
+    if (!accepted) {
+      Serial.printf("[InputManager] ⚠️  Ignored invalid transition for button %d (%s)\n",
+                    button_id, pressed ? "PRESS on already pressed" : "RELEASE on not pressed");
     }
   }
 }

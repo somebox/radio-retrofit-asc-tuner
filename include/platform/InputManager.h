@@ -19,6 +19,7 @@ public:
   void registerButton(int id);
   void registerEncoder(int id);
   void registerSwitch(int id, int num_positions = 4);
+  void registerAnalog(int id, int pin, int deadzone = 10, unsigned long min_update_interval_ms = 100);
   
   // Update (call every frame)
   void update();
@@ -27,15 +28,18 @@ public:
   ButtonControl& button(int id);
   EncoderControl& encoder(int id);
   SwitchControl& switch_(int id);
+  AnalogControl& analog(int id);
   
   const ButtonControl& button(int id) const;
   const EncoderControl& encoder(int id) const;
   const SwitchControl& switch_(int id) const;
+  const AnalogControl& analog(int id) const;
   
   // Check existence
   bool hasButton(int id) const { return buttons_.count(id) > 0; }
   bool hasEncoder(int id) const { return encoders_.count(id) > 0; }
   bool hasSwitch(int id) const { return switches_.count(id) > 0; }
+  bool hasAnalog(int id) const { return analogs_.count(id) > 0; }
   
   // Get current time (useful for queries)
   unsigned long currentTime() const { return current_time_; }
@@ -48,6 +52,7 @@ private:
   std::map<int, ButtonControl> buttons_;
   std::map<int, EncoderControl> encoders_;
   std::map<int, SwitchControl> switches_;
+  std::map<int, AnalogControl> analogs_;
   
   // Timing
   unsigned long current_time_;

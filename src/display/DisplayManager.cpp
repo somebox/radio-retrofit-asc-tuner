@@ -466,7 +466,6 @@ bool DisplayManager::testDriverCommunication(int driver_index) {
 void DisplayManager::setBrightnessLevel(uint8_t value) {
   current_brightness_level_ = value;
   setGlobalBrightness(value);
-  Serial.printf("Display brightness level set to %d\n", value);
 }
 
 // Initialization helpers

@@ -2,13 +2,9 @@
 
 Interactive serial console for hardware testing and debugging.
 
-## Concept
-
-**Purpose**: Provide immediate hardware debugging when things fail, without recompiling.
-
-**Design Decisions**:
+- Actived by pressing any key in Serial Monitor
 - Serial input handled in main.cpp (single coordination point)
-- Auto-activate on boot failures (immediate debugging access)
+- Auto-activates on boot failures (immediate debugging access)
 - Suppress periodic logs when active (clean console)
 - Skip normal operations when active (no interference)
 
@@ -23,12 +19,19 @@ led test                       - Cycle through all LEDs
 led clear                      - Clear all LEDs
 ```
 
+**Hardware**: Lights-and-Buttons IS31FL3737 LED driver module
+- Board labels: SW1-SW12, CS1-CS12
+- Software uses 0-based indexing: row 0-11, col 0-11
+- Total: 132 addressable LEDs (12×12 matrix)
+- Note: CS12 pin is not functional on the IS31FL3737
+
 **Examples**:
+
 ```
-led 0 0 255        # Full brightness on SW0, CS0
-led 1 3 128        # Half brightness on SW1, CS3
-led all 0          # Clear all
-led test           # Visual test pattern
+led 0 0 255        # Full brightness on SW1, CS1 (board labels)
+led 2 10 128       # Half brightness on SW3, CS11 (board labels)
+led all 200        # Set all 132 LEDs to brightness 200
+led test           # Visual test pattern (all positions)
 ```
 
 ### Control Monitoring
@@ -38,12 +41,15 @@ controls                    - Show current button, encoder and switch states
 ```
 
 **Output**:
+
 ```
 [Encoder] Turned CW (1 steps)
 [Encoder] Button PRESSED
 [Switch] Stereo (0)
 [Button] Preset 1 (0)
 ```
+
+Press any key to stop monitoring.
 
 ### Event System
 
@@ -59,6 +65,7 @@ config                     - Show configuration options
 ```
 
 **Output**:
+
 ```
 Radio Retrofit Diagnostics Mode
 Firmware: v1.0.0
@@ -72,12 +79,24 @@ Events: 9 types, 15 active subscribers
 
 ### Menu, Help & Navigation
 
-Diagnostics mode is enabled by default, and activated by any keypress in Serial Monitor (when no menu active). The menu is displayed as a list of commands. 
+Diagnostics mode is enabled by default, and activated by any keypress in Serial Monitor (when no menu active). The menu is displayed as a list of commands.
 
 ```
 help or ?                      - Show command list
 exit or q                      - Exit diagnostics mode
 ```
+
+**Command Line Editing**:
+- **Left/Right arrow keys** - Move cursor within the current line for editing
+- **Home/End keys** - Jump to start/end of line
+- **Backspace** - Delete character before cursor (works at any position)
+- Character insertion works at any cursor position
+
+**Command History Navigation**:
+- **Up/Down arrow keys** - Navigate through previous commands (up to 50 stored)
+- **ESC** - Clear current line and reset to end of history
+- History persists during the diagnostics session
+- Duplicate consecutive commands are not added to history
 
 ---
 

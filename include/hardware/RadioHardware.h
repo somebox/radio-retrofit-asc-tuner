@@ -52,6 +52,7 @@ public:
   void clearAllPresetLEDs();
   void updatePresetLEDs();
   void setGlobalBrightness(uint8_t brightness);
+  void setVUMeterBacklightBrightness(uint8_t brightness);  // VU meter backlights only
   
   // Test functions
   void testPresetLEDs();

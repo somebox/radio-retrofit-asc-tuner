@@ -1,52 +1,91 @@
-# AS-5000E Panel Controls
+# AS-5000E Front Panel Controls
 
-## Main display
+![AS-5000E Front Panel](./AS-5000E-Panel-Layout.jpg)
 
-A dot matrix display using [RetroText](https://github.com/PixelTheater/retrotext) to display 18 characters, each is 4x6. The dots are individually addressable with PWM, and the display is driven by the IS31FL3737 LED driver.
+*The original front panel layout, this is the original design - this project replaces the mains screen with an led character matrix display.*
 
-## Controls
+## Physical Layout
 
-There's a main knob connected to a pushbutton rotary encoder. This will be used to change the station or preset, or navigate menus and playlists.
+**Display**: 18-character dot-matrix display (3× RetroText modules, 6 chars each)
+- 4×6 pixel glyphs, individually addressable with PWM
+- Driven by 3× IS31FL3737 LED drivers
 
-Along the bottom are 7 preset buttons, and 1 button labeled "memory". Each of these buttons have an LED above them.
+**Input Controls**:
+- **Rotary Encoder**: Main knob ("Tuning") with push button (station/menu navigation)
+- **Preset Buttons**: 7 preset buttons + 1 memory button (8 total)
+- **Potentiometer**:  Muting/brightness control knob (originally "Volume")
+- **Mode Selector**: 4-position switch (Stereo, Stereo-Far, Q, Mono)
 
-There's a "muting" knob, connected to a potentiometer. This will be used to adjust the volume.
+**Indicators**:
+- **Preset LEDs**: 8 LEDs above preset buttons
+- **Mode LEDs**: 4 LEDs for mode selector
+- **VU Meters**: 2 analog meters (Tuning and Signal) with 5 LED channels total
 
-A 4-way selector switch has the options "stereo", "stereo-far", "Q" and "mono".
+**Audio**: 2× headphone jacks, cassette DIN socket (not wired)
 
-There's two VU meters, one for "tuning" and the other for "signal".
+## Hardware Connections
 
-Finally, there's two headphone jacks paired with a single volume control, and a cassette interface DIN socket. 
+All pin assignments defined in `include/hardware/HardwareConfig.h`.
 
-## Wiring
+### I2C Devices
 
-The buttons are connected to the TCA8418 keypad controller, and the LEDs are connected to the IS31FL3737 LED driver (address: SCL).
+| Device | Address | ADDR Pin | Purpose |
+|--------|---------|----------|---------|
+| TCA8418 Keypad Controller | 0x34 | - | Button/encoder scanning (4×10 matrix) |
+| IS31FL3737 Display #1 | 0x50 | GND | RetroText module 1 |
+| IS31FL3737 Display #2 | 0x5A | VCC | RetroText module 2 |
+| IS31FL3737 Display #3 | 0x5F | SDA | RetroText module 3 |
+| IS31FL3737 Preset LEDs | 0x55 | SCL | Button/mode/VU LEDs (12×12 matrix) |
 
-| Control                | Device/Interface         | Connection                | Function                                      |
-|------------------------|-------------------------|---------------------------|-----------------------------------------------|
-| Main Display           | IS31FL3737 (0x50/0x51/0x52) | I2C bus                   | 18x 4x6 dot-matrix character display          |
-| Rotary Encoder (knob)  | TCA8418 (0x34)          | Row/Col (TBD)             | Station/preset/menu navigation (with push)    |
-| Preset 1 Button        | TCA8418 (0x34)          | Row 0, Col 0              | Select preset 1                               |
-| Preset 1 LED           | IS31FL3737 (SCL)        | SW0, CS0                  | Indicates preset 1 status                     |
-| Preset 2 Button        | TCA8418 (0x34)          | Row 0, Col 1              | Select preset 2                               |
-| Preset 2 LED           | IS31FL3737 (SCL)        | SW0, CS1                  | Indicates preset 2 status                     |
-| Preset 3 Button        | TCA8418 (0x34)          | Row 0, Col 2              | Select preset 3                               |
-| Preset 3 LED           | IS31FL3737 (SCL)        | SW0, CS2                  | Indicates preset 3 status                     |
-| Preset 4 Button        | TCA8418 (0x34)          | Row 0, Col 3              | Select preset 4                               |
-| Preset 4 LED           | IS31FL3737 (SCL)        | SW0, CS3                  | Indicates preset 4 status                     |
-| Preset 5 Button        | TCA8418 (0x34)          | Row 0, Col 5              | Select preset 5                               |
-| Preset 5 LED           | IS31FL3737 (SCL)        | SW0, CS5                  | Indicates preset 5 status                     |
-| Preset 6 Button        | TCA8418 (0x34)          | Row 0, Col 6              | Select preset 6                               |
-| Preset 6 LED           | IS31FL3737 (SCL)        | SW0, CS6                  | Indicates preset 6 status                     |
-| Preset 7 Button        | TCA8418 (0x34)          | Row 0, Col 7              | Select preset 7                               |
-| Preset 7 LED           | IS31FL3737 (SCL)        | SW0, CS7                  | Indicates preset 7 status                     |
-| Memory Button          | TCA8418 (0x34)          | Row 0, Col 8              | Store/recall preset                           |
-| Memory LED             | IS31FL3737 (SCL)        | SW0, CS8                  | Indicates memory mode                         |
-| Muting Knob            | ESP32 ADC               | GPIO (TBD)                | Volume adjustment                             |
-| Selector Switch        | ESP32 GPIO              | GPIOs (TBD)               | Selects stereo/mono/Q mode                    |
-| Tuning VU Meter        | ESP32 DAC/PWM           | GPIO (TBD)                | Indicates tuning accuracy                     |
-| Signal VU Meter        | ESP32 DAC/PWM           | GPIO (TBD)                | Indicates signal strength                     |
-| Headphone Jacks (x2)   | Audio Jack              | Audio Output              | Headphone audio output                        |
-| Headphone Volume       | ESP32 ADC               | GPIO (TBD)                | Headphone volume control                      |
-| Cassette DIN Socket    | DIN Connector           | none       | Cassette interface                            |
+**IS31FL3737 Address Calculation**: Base `0b1010000` + ADDR pin bits
+- GND=`0000` → 0x50, VCC=`1010` → 0x5A, SDA=`1111` → 0x5F, SCL=`0101` → 0x55
 
+### TCA8418 Matrix Mapping
+
+**Preset Buttons** (Row 3):
+- Presets 1-7: Cols 3,2,1,0,8,7,6
+- Memory: Col 5
+- Note: Col 4 physically skipped (PCB gap)
+
+**Rotary Encoder** (Row 2):
+- Channel A: Col 3
+- Channel B: Col 4  
+- Push Button: Col 2
+
+**Mode Selector** (Row 2):
+- Positions: Cols 0-3 (Stereo, Stereo-Far, Q, Mono)
+
+### Analog Input
+
+**Potentiometer**: GPIO33 (ADC1_CH5)
+- Controls display and VU meter backlight brightness
+- 12-bit ADC (0-4095), with deadzone filtering and time throttling
+
+### LED Matrix Mapping (IS31FL3737 @ 0x55)
+
+**Preset LEDs** (Row 3): SW3/CS(3,2,1,0,8,7,6,5)
+
+**Mode LEDs** (Row 0): SW0/CS(7,6,8,5)
+
+**VU Meter LEDs** (Row 2):
+- Tuning Bar 1: SW2/CS0
+- Tuning Bar 2: SW2/CS1
+- Tuning Backlight: SW2/CS9
+- Signal Bar: SW2/CS3
+- Signal Backlight: SW2/CS10
+
+## Brightness Control
+
+**Potentiometer** controls:
+- Display brightness (via `DisplayManager::setBrightnessLevel()`)
+- VU meter backlights only (via `RadioHardware::setVUMeterBacklightBrightness()`)
+
+**Indicator LEDs** maintain constant brightness (not affected by potentiometer):
+- Preset button LEDs
+- Mode selector LEDs
+- VU meter bars
+
+**Brightness Levels** (defined in `HardwareConfig.h`):
+- `LED_BRIGHTNESS_OFF` = 0
+- `LED_BRIGHTNESS_DIM` = 64 (startup default for VU backlights)
+- `LED_BRIGHTNESS_FULL` = 255

@@ -240,10 +240,7 @@ void setup() {
   if (display_manager) {
     display_static_message("Ready", true, 500);
   }
-  if (radio_hardware) {
-    radio_hardware->clearAllPresetLEDs();
-    radio_hardware->updatePresetLEDs();
-  }
+  // Don't clear preset LEDs here - PresetManager already initialized them correctly
 
   pinMode(USER_BUTTON, INPUT_PULLUP);
   Serial.println("Starting demo mode...");
@@ -252,16 +249,179 @@ void setup() {
 
 void loop() {
   #ifdef ENABLE_DIAGNOSTICS
-    // Handle serial input for diagnostics
-    if (Serial.available()) {
-      String line = Serial.readStringUntil('\n');
-      line.trim();
+    // Handle serial input for diagnostics with command history and line editing
+    static String input_buffer = "";
+    static int cursor_pos = 0;  // Position of cursor in buffer (0 = start, length = end)
+    static bool user_exited = false;  // Track if user explicitly exited
+    
+    while (Serial.available()) {
+      char c = Serial.read();
       
-      if (line.length() > 0) {
-        if (!diagnostics->isActive()) {
-          diagnostics->activate();  // First keypress activates
+      if (c == '\n' || c == '\r') {
+        // Process complete line
+        Serial.println();  // Echo the newline
+        input_buffer.trim();
+        
+        if (input_buffer.length() > 0 || c == '\n') {
+          if (!diagnostics->isActive()) {
+            // Only auto-activate if user hasn't explicitly exited
+            if (!user_exited) {
+              diagnostics->activate();  // First keypress activates
+            } else {
+              // User exited, ignore input
+              input_buffer = "";
+              cursor_pos = 0;
+              break;
+            }
+          } else {
+            // Process command
+            diagnostics->processCommand(input_buffer);
+            
+            // Check if user exited
+            if (!diagnostics->isActive()) {
+              user_exited = true;
+            }
+          }
         }
-        diagnostics->processCommand(line);
+        
+        input_buffer = "";  // Clear buffer
+        cursor_pos = 0;
+        break;
+      } else if (c == 127 || c == 8) {
+        // Backspace - delete character before cursor
+        if (cursor_pos > 0) {
+          // Remove character before cursor
+          input_buffer.remove(cursor_pos - 1, 1);
+          cursor_pos--;
+          
+          // Redraw line: move cursor back, print rest of line + space, move cursor to position
+          Serial.print("\b");  // Move back one
+          String rest = input_buffer.substring(cursor_pos);
+          Serial.print(rest);
+          Serial.print(" ");  // Clear the deleted character
+          // Move cursor back to position
+          for (size_t i = 0; i <= rest.length(); i++) {
+            Serial.print("\b");
+          }
+        }
+      } else if (c == 0x1B) {
+        // ESC key - check for ANSI escape sequence
+        delay(1);  // Brief delay to see if this is an escape sequence
+        
+        if (Serial.available() && Serial.peek() == '[') {
+          // ANSI escape sequence - consume the '['
+          Serial.read();
+          delay(1);
+          
+          if (Serial.available()) {
+            char seq = Serial.read();
+            
+            if (seq == 'A') {
+              // Up arrow - get previous command
+              String prev_cmd = diagnostics->getPreviousCommand();
+              if (prev_cmd.length() > 0) {
+                // Clear current line: move cursor to start, clear to end
+                for (int i = 0; i < cursor_pos; i++) {
+                  Serial.print("\b");
+                }
+                for (size_t i = 0; i < input_buffer.length(); i++) {
+                  Serial.print(" ");
+                }
+                for (size_t i = 0; i < input_buffer.length(); i++) {
+                  Serial.print("\b");
+                }
+                // Display previous command
+                input_buffer = prev_cmd;
+                cursor_pos = input_buffer.length();
+                Serial.print(input_buffer);
+              }
+            } else if (seq == 'B') {
+              // Down arrow - get next command
+              String next_cmd = diagnostics->getNextCommand();
+              // Clear current line
+              for (int i = 0; i < cursor_pos; i++) {
+                Serial.print("\b");
+              }
+              for (size_t i = 0; i < input_buffer.length(); i++) {
+                Serial.print(" ");
+              }
+              for (size_t i = 0; i < input_buffer.length(); i++) {
+                Serial.print("\b");
+              }
+              // Display next command (may be empty)
+              input_buffer = next_cmd;
+              cursor_pos = input_buffer.length();
+              Serial.print(input_buffer);
+            } else if (seq == 'C') {
+              // Right arrow - move cursor right by reprinting the character
+              if (cursor_pos < (int)input_buffer.length()) {
+                Serial.print(input_buffer[cursor_pos]);
+                cursor_pos++;
+              }
+            } else if (seq == 'D') {
+              // Left arrow - move cursor left using backspace
+              if (cursor_pos > 0) {
+                Serial.print("\b");
+                cursor_pos--;
+              }
+            } else if (seq == 'H') {
+              // Home key - move to start
+              while (cursor_pos > 0) {
+                Serial.print("\b");
+                cursor_pos--;
+              }
+            } else if (seq == 'F') {
+              // End key - move to end
+              while (cursor_pos < (int)input_buffer.length()) {
+                Serial.print(input_buffer[cursor_pos]);
+                cursor_pos++;
+              }
+            }
+          }
+        } else {
+          // Standalone ESC - clear line and reset history position
+          for (int i = 0; i < cursor_pos; i++) {
+            Serial.print("\b");
+          }
+          for (size_t i = 0; i < input_buffer.length(); i++) {
+            Serial.print(" ");
+          }
+          for (size_t i = 0; i < input_buffer.length(); i++) {
+            Serial.print("\b");
+          }
+          input_buffer = "";
+          cursor_pos = 0;
+          diagnostics->resetHistoryPosition();
+        }
+      } else if (c >= 32 && c < 127) {
+        // Printable character - insert at cursor position
+        if (input_buffer.length() == 0) {
+          diagnostics->resetHistoryPosition();
+        }
+        
+        // Insert character at cursor position
+        if (cursor_pos >= (int)input_buffer.length()) {
+          // At end of line - simple append
+          input_buffer += c;
+          Serial.print(c);
+          cursor_pos++;
+        } else {
+          // Insert in middle - need to redraw rest of line
+          String before = input_buffer.substring(0, cursor_pos);
+          String after = input_buffer.substring(cursor_pos);
+          input_buffer = before + c + after;
+          
+          // Print new character and rest of line
+          Serial.print(c);
+          Serial.print(after);
+          
+          // Move cursor back to correct position
+          for (size_t i = 0; i < after.length(); i++) {
+            Serial.print("\b");
+          }
+          
+          cursor_pos++;
+        }
       }
     }
     
@@ -296,13 +456,43 @@ void loop() {
   }
   if (radio_hardware) {
     radio_hardware->update();
+    
+    // Check for potentiometer changes (controls display and VU meter backlights)
+    if (radio_hardware->inputManager().hasAnalog(0)) {
+      const Input::AnalogControl& pot = radio_hardware->inputManager().analog(0);
+      if (pot.changed()) {
+        uint8_t brightness = pot.valueAsByte();
+        global_brightness = brightness;
+        
+        // Update display brightness
+        if (display_manager) {
+          display_manager->setBrightnessLevel(brightness);
+        }
+        
+        // Update VU meter backlight brightness (not indicator LEDs)
+        radio_hardware->setVUMeterBacklightBrightness(brightness);
+        
+        Serial.printf("Brightness: %d%%\n", pot.valueAsPercent());
+      }
+    }
   }
 
   // Check for mode changes
   if (preset_manager && preset_manager->hasModeChanged()) {
     current_mode = preset_manager->getSelectedMode();
-    Serial.printf("Mode: %s\n", mode_names[static_cast<uint8_t>(current_mode)]);
+    Serial.printf("Mode changed to: %s\n", mode_names[static_cast<uint8_t>(current_mode)]);
     select_random_message();
+    
+    // Reset scrolling text controllers to start fresh
+    if (modern_sign) {
+      modern_sign->setMessage(current_message);
+      modern_sign->reset();
+    }
+    if (retro_sign) {
+      retro_sign->setMessage(current_message);
+      retro_sign->reset();
+    }
+    
     preset_manager->clearModeChanged();
   }
 
@@ -319,14 +509,20 @@ void loop() {
     switch (current_mode) {
       case DisplayMode::RETRO:
         if (retro_sign) {
-          retro_sign->setMessage(current_message);
+          // Only set message if it changed, don't set every frame (prevents scrolling)
+          if (retro_sign->getMessage() != current_message) {
+            retro_sign->setMessage(current_message);
+          }
           retro_sign->update();
         }
         break;
         
       case DisplayMode::MODERN:
         if (modern_sign) {
-          modern_sign->setMessage(current_message);
+          // Only set message if it changed, don't set every frame (prevents scrolling)
+          if (modern_sign->getMessage() != current_message) {
+            modern_sign->setMessage(current_message);
+          }
           modern_sign->update();
         }
         break;

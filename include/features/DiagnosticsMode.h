@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Arduino.h>
+#include <vector>
 #include "hardware/RadioHardware.h"
 #include "platform/events/Events.h"
 
@@ -9,6 +10,7 @@
  * 
  * Provides simple commands for LED control, input monitoring, event monitoring,
  * and system information. Automatically suppresses periodic log messages while active.
+ * Supports command history navigation with up/down arrow keys and ESC to clear line.
  */
 class DiagnosticsMode {
 public:
@@ -43,6 +45,23 @@ public:
    * Main reads the line, passes it here for processing.
    */
   void processCommand(const String& command);
+  
+  /**
+   * @brief Get previous command from history (up arrow)
+   * @return Previous command string, or empty if at beginning
+   */
+  String getPreviousCommand();
+  
+  /**
+   * @brief Get next command from history (down arrow)
+   * @return Next command string, or empty if at end
+   */
+  String getNextCommand();
+  
+  /**
+   * @brief Reset history navigation to most recent
+   */
+  void resetHistoryPosition();
   
   /**
    * @brief Check if diagnostics mode is currently active
@@ -90,6 +109,11 @@ private:
   // Monitoring flags
   bool monitoring_events_;
   bool monitoring_controls_;
+  
+  // Command history
+  std::vector<String> command_history_;
+  int history_position_;  // -1 means at end (no navigation), 0 = oldest, size-1 = newest
+  static const size_t MAX_HISTORY = 50;
   
   // Auto-exit timeout (disabled - user must exit manually)
   static const unsigned long TIMEOUT_MS = 0;  // 0 = disabled

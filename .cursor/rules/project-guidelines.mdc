@@ -11,3 +11,5 @@ We use the native test environment to check our application, and use the build i
 We will use markdown documentation to work out complex ideas or refactorings. However, these are not considered documentation and should be deleted before merging. After completing a large feature, update the `doc/work-planning.md` to mark completed tasks, and update related documentation, including README.md.
 
 Ensure documentation is always as concise and accurate as possible. Documentation must be factual and helpful, not promotional or overly verbose. 
+
+We use platformio and esphome to build and test firmware. Run the build and test commands whenever needed. However do not attempt to upload firmware or run the serial monitor directly, ask the user to do this.

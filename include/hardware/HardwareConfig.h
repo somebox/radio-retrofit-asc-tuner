@@ -35,25 +35,25 @@ struct PresetButton {
   int col;
 };
 
-constexpr int PRESET_BUTTON_ROW        = 0;
+constexpr int PRESET_BUTTON_ROW        = 3;
 constexpr PresetButton PRESET_BUTTONS[] = {
-  {"Preset 1", PRESET_BUTTON_ROW, 0},
-  {"Preset 2", PRESET_BUTTON_ROW, 1},
-  {"Preset 3", PRESET_BUTTON_ROW, 2},
-  {"Preset 4", PRESET_BUTTON_ROW, 3},
-  {"Preset 5", PRESET_BUTTON_ROW, 5},  // Col 4 skipped (PCB layout)
-  {"Preset 6", PRESET_BUTTON_ROW, 6},
-  {"Preset 7", PRESET_BUTTON_ROW, 7},
-  {"Memory",   PRESET_BUTTON_ROW, 8}
+  {"Preset 1", PRESET_BUTTON_ROW, 3},
+  {"Preset 2", PRESET_BUTTON_ROW, 2},
+  {"Preset 3", PRESET_BUTTON_ROW, 1},
+  {"Preset 4", PRESET_BUTTON_ROW, 0},
+  {"Preset 5", PRESET_BUTTON_ROW, 8}, 
+  {"Preset 6", PRESET_BUTTON_ROW, 7},
+  {"Preset 7", PRESET_BUTTON_ROW, 6},
+  {"Memory",   PRESET_BUTTON_ROW, 5}
 };
 
 constexpr int NUM_PRESETS = sizeof(PRESET_BUTTONS) / sizeof(PRESET_BUTTONS[0]);
 
 // Rotary Encoder (Row 1)
-constexpr int ENCODER_ROW        = 1;
-constexpr int ENCODER_COL_A      = 1;  // Channel A
-constexpr int ENCODER_COL_B      = 2;  // Channel B
-constexpr int ENCODER_COL_BUTTON = 3;  // Push button
+constexpr int ENCODER_ROW        = 2;
+constexpr int ENCODER_COL_A      = 3;  // Channel A
+constexpr int ENCODER_COL_B      = 4;  // Channel B
+constexpr int ENCODER_COL_BUTTON = 2;  // Push button
 
 // Mode Selector Switch (Row 2) - 4-position switch
 constexpr int MODE_SELECTOR_ROW = 2;
@@ -75,6 +75,10 @@ constexpr int NUM_MODE_POSITIONS = sizeof(MODE_SELECTOR_BUTTONS) / sizeof(MODE_S
 // IS31FL3737 PRESET LED MATRIX
 // ============================================================================
 
+// IS31FL3737 matrix dimensions (12x12 driver)
+constexpr int LED_MATRIX_ROWS = 12;  // SW0-SW11 (0-based)
+constexpr int LED_MATRIX_COLS = 12;  // CS0-CS11 (0-based)
+
 // LED positions (SW=row, CS=column on LED driver)
 struct PresetLED {
   int sw_pin;
@@ -82,21 +86,21 @@ struct PresetLED {
 };
 
 constexpr PresetLED PRESET_LEDS[] = {
-  {0, 0},  // Preset 1
-  {0, 1},  // Preset 2
-  {0, 2},  // Preset 3
-  {0, 3},  // Preset 4
-  {0, 5},  // Preset 5 (CS4 skipped)
-  {0, 6},  // Preset 6
-  {0, 7},  // Preset 7
-  {0, 8}   // Memory
+  {3, 3},  // Preset 1
+  {3, 2},  // Preset 2
+  {3, 1},  // Preset 3
+  {3, 0},  // Preset 4
+  {3, 8},  // Preset 5 (CS4 skipped)
+  {3, 7},  // Preset 6
+  {3, 6},  // Preset 7
+  {3, 5}   // Memory
 };
 
 static_assert(sizeof(PRESET_LEDS) / sizeof(PRESET_LEDS[0]) == NUM_PRESETS, 
               "PresetLED count must match PresetButton count");
 
 // Mode Indicator LEDs (Row 2) - 4 LEDs showing active mode
-constexpr int MODE_LED_ROW = 2;
+constexpr int MODE_LED_ROW = 0;
 struct ModeLED {
   const char* name;
   int sw_pin;
@@ -104,16 +108,16 @@ struct ModeLED {
 };
 
 constexpr ModeLED MODE_LEDS[] = {
-  {"Stereo",     MODE_LED_ROW, 0},
-  {"Stereo-Far", MODE_LED_ROW, 1},
-  {"Q",          MODE_LED_ROW, 2},
-  {"Mono",       MODE_LED_ROW, 3}
+  {"Stereo",     MODE_LED_ROW, 7},
+  {"Stereo-Far", MODE_LED_ROW, 6},
+  {"Q",          MODE_LED_ROW, 8},
+  {"Mono",       MODE_LED_ROW, 5}
 };
 
 constexpr int NUM_MODE_LEDS = sizeof(MODE_LEDS) / sizeof(MODE_LEDS[0]);
 
-// VU Meter LEDs (Row 3) - 5 LEDs total for 2 analog meters
-constexpr int VU_METER_ROW = 3;
+// VU Meter LEDs (Row 2) - 5 LEDs total for 2 analog meters
+constexpr int VU_METER_ROW = 2;
 struct VUMeterLED {
   const char* name;
   int sw_pin;
@@ -123,9 +127,9 @@ struct VUMeterLED {
 constexpr VUMeterLED VU_METER_LEDS[] = {
   {"Tuning Bar 1",      VU_METER_ROW, 0},  // First meter channel 1
   {"Tuning Bar 2",      VU_METER_ROW, 1},  // First meter channel 2
-  {"Tuning Backlight",  VU_METER_ROW, 2},  // First meter illumination
+  {"Tuning Backlight",  VU_METER_ROW, 9},  // First meter illumination
   {"Signal Bar",        VU_METER_ROW, 3},  // Second meter channel
-  {"Signal Backlight",  VU_METER_ROW, 4}   // Second meter illumination
+  {"Signal Backlight",  VU_METER_ROW, 10}   // Second meter illumination
 };
 
 constexpr int NUM_VU_METER_LEDS = sizeof(VU_METER_LEDS) / sizeof(VU_METER_LEDS[0]);
@@ -134,7 +138,10 @@ constexpr int NUM_VU_METER_LEDS = sizeof(VU_METER_LEDS) / sizeof(VU_METER_LEDS[0
 // ESP32 ANALOG INPUT (ADC)
 // ============================================================================
 
-constexpr int PIN_VOLUME_POT = 32;  // GPIO32 (ADC1_CH4) - Volume potentiometer
+// Volume/Muting potentiometer on AS5000E front panel
+// Connected to ADC1_CH5, reads 0-4095 (12-bit)
+// Used for screen brightness control with noise reduction (deadzone + time throttling)
+constexpr int PIN_VOLUME_POT = 33;  // GPIO33 (ADC1_CH5)
 
 // ============================================================================
 // LED BRIGHTNESS LEVELS

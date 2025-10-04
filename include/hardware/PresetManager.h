@@ -54,14 +54,6 @@ public:
   PresetContext context() const { return context_; }
 
 private:
-  struct PresetConfig {
-    int id;
-    int button_row;
-    int button_col;
-    int led_row;
-    int led_col;
-  };
-
   RadioHardware* radio_hardware_;
   AnnouncementModule* announcement_module_;
 
@@ -90,7 +82,6 @@ private:
   void applyAction(int button_index, const PresetButtonBinding& binding, bool long_press);
   void announce(const char* text, unsigned long duration_ms = 1000);
 
-  static const PresetConfig BUTTON_CONFIG[kButtonCount];
   static const PresetButtonBinding DEFAULT_BINDINGS[kButtonCount];
   static const PresetButtonBinding MENU_BINDINGS[kButtonCount];
 

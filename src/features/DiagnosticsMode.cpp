@@ -4,6 +4,10 @@
 
 using namespace HardwareConfig;
 
+// IS31FL3737 is a 12x12 LED matrix driver
+constexpr int LED_DRIVER_ROWS = HardwareConfig::LED_MATRIX_ROWS;
+constexpr int LED_DRIVER_COLS = HardwareConfig::LED_MATRIX_COLS;
+
 // Constructor
 DiagnosticsMode::DiagnosticsMode(RadioHardware* hardware, EventBus* event_bus)
   : hardware_(hardware),
@@ -11,7 +15,8 @@ DiagnosticsMode::DiagnosticsMode(RadioHardware* hardware, EventBus* event_bus)
     active_(false),
     last_activity_(0),
     monitoring_events_(false),
-    monitoring_controls_(false) {
+    monitoring_controls_(false),
+    history_position_(-1) {
 }
 
 // Initialize diagnostics mode
@@ -74,8 +79,8 @@ void DiagnosticsMode::showHelp() {
   Serial.println("  led clear            - Clear all LEDs");
   Serial.println();
   Serial.println("Monitoring:");
-  Serial.println("  controls             - Monitor button presses (Ctrl+C to stop)");
-  Serial.println("  events               - Monitor all events (Ctrl+C to stop)");
+  Serial.println("  controls             - Monitor raw TCA8418 keypad (any key to stop)");
+  Serial.println("  events               - Monitor all events (any key to stop)");
   Serial.println();
   Serial.println("Information:");
   Serial.println("  info                 - Show system status");
@@ -84,6 +89,13 @@ void DiagnosticsMode::showHelp() {
   Serial.println("General:");
   Serial.println("  help or ?            - Show this help");
   Serial.println("  exit or q            - Exit diagnostics mode");
+  Serial.println();
+  Serial.println("Navigation & Editing:");
+  Serial.println("  Up/Down arrows       - Navigate command history");
+  Serial.println("  Left/Right arrows    - Move cursor within line");
+  Serial.println("  Home/End             - Jump to start/end of line");
+  Serial.println("  Backspace            - Delete character before cursor");
+  Serial.println("  ESC                  - Clear current line");
   Serial.println();
 }
 
@@ -100,6 +112,19 @@ void DiagnosticsMode::processCommand(const String& command) {
     Serial.print("> ");
     return;
   }
+  
+  // Add to command history (avoid duplicates of the last command)
+  if (command_history_.empty() || command_history_.back() != cmd) {
+    command_history_.push_back(cmd);
+    
+    // Limit history size
+    if (command_history_.size() > MAX_HISTORY) {
+      command_history_.erase(command_history_.begin());
+    }
+  }
+  
+  // Reset history position after executing a command
+  history_position_ = -1;
   
   // Parse command - split on first space
   int space_idx = cmd.indexOf(' ');
@@ -163,13 +188,16 @@ void DiagnosticsMode::handleLEDCommand(const String& args) {
   else if (subcmd == "test") {
     // Cycle through all LEDs
     Serial.println("LED test - cycling through all positions...");
+    Serial.printf("Testing %dx%d matrix (SW1-SW%d, CS1-CS%d)\n", 
+                  LED_DRIVER_ROWS, LED_DRIVER_COLS, 
+                  LED_DRIVER_ROWS, LED_DRIVER_COLS);
     
-    for (int row = 0; row < 6; row++) {
-      for (int col = 0; col < 16; col++) {
+    for (int row = 0; row < LED_DRIVER_ROWS; row++) {
+      for (int col = 0; col < LED_DRIVER_COLS; col++) {
         hardware_->clearAllPresetLEDs();
         hardware_->setLED(row, col, 255);
         hardware_->updatePresetLEDs();
-        Serial.printf("  Row=%d Col=%d\n", row, col);
+        Serial.printf("  SW%d CS%d\n", row+1, col+1);  // Show 1-based labels
         delay(100);
       }
     }
@@ -189,13 +217,15 @@ void DiagnosticsMode::handleLEDCommand(const String& args) {
       return;
     }
     
-    for (int row = 0; row < 6; row++) {
-      for (int col = 0; col < 16; col++) {
+    for (int row = 0; row < LED_DRIVER_ROWS; row++) {
+      for (int col = 0; col < LED_DRIVER_COLS; col++) {
         hardware_->setLED(row, col, brightness);
       }
     }
     hardware_->updatePresetLEDs();
-    Serial.printf("All LEDs set to %d\n", brightness);
+    Serial.printf("All LEDs set to %d (%dx%d matrix = %d LEDs)\n", 
+                  brightness, LED_DRIVER_ROWS, LED_DRIVER_COLS, 
+                  LED_DRIVER_ROWS * LED_DRIVER_COLS);
   }
   else {
     // Set specific LED: led <row> <col> <brightness>
@@ -218,12 +248,12 @@ void DiagnosticsMode::handleLEDCommand(const String& args) {
     brightness = args.substring(second + 1).toInt();
     
     // Validate ranges
-    if (row < 0 || row >= 6) {
-      Serial.println("ERROR: Row must be 0-5");
+    if (row < 0 || row >= LED_DRIVER_ROWS) {
+      Serial.printf("ERROR: Row must be 0-%d (SW1-SW%d on board)\n", LED_DRIVER_ROWS-1, LED_DRIVER_ROWS);
       return;
     }
-    if (col < 0 || col >= 16) {
-      Serial.println("ERROR: Column must be 0-15");
+    if (col < 0 || col >= LED_DRIVER_COLS) {
+      Serial.printf("ERROR: Column must be 0-%d (CS1-CS%d on board)\n", LED_DRIVER_COLS-1, LED_DRIVER_COLS);
       return;
     }
     if (brightness < 0 || brightness > 255) {
@@ -234,32 +264,65 @@ void DiagnosticsMode::handleLEDCommand(const String& args) {
     // Set LED
     hardware_->setLED(row, col, brightness);
     hardware_->updatePresetLEDs();
-    Serial.printf("LED Row=%d Col=%d set to %d\n", row, col, brightness);
+    Serial.printf("LED SW%d CS%d set to %d\n", row+1, col+1, brightness);  // Show 1-based labels
   }
 }
 
 // Handle controls monitoring
 void DiagnosticsMode::handleControlsCommand() {
-  if (!event_bus_) {
-    Serial.println("ERROR: Event bus not available");
+  if (!hardware_) {
+    Serial.println("ERROR: Hardware not available");
     return;
   }
   
-  Serial.println("\n=== CONTROLS MONITOR ===");
-  Serial.println("Note: Input controls are now managed by InputManager");
-  Serial.println("Use InputManager API to query button/encoder state");
-  Serial.println("Press Ctrl+C or any key to return");
+  Serial.println("\n=== RAW KEYPAD MONITOR ===");
+  Serial.println("Monitoring TCA8418 keypad events (raw row/col)");
+  Serial.println("Press buttons/encoder to see their row/col position");
+  Serial.println("Press any serial key to stop monitoring");
   Serial.println();
   
-  monitoring_controls_ = true;
+  // Flush serial buffer to avoid immediate exit
+  delay(100);
+  while (Serial.available()) {
+    Serial.read();
+  }
   
-  // Wait for user to press a key to stop
+  monitoring_controls_ = true;
+  unsigned long last_check = 0;
+  
+  // Monitor for keypad events
   while (monitoring_controls_ && active_) {
+    // Check for serial input to exit
     if (Serial.available()) {
       Serial.read();  // Consume the character
       break;
     }
-    delay(10);
+    
+    // Check for keypad events (only check every 10ms to avoid spam)
+    if (millis() - last_check >= 10) {
+      last_check = millis();
+      
+      if (hardware_->hasKeypadEvent()) {
+        int evt = hardware_->getKeypadEvent();
+        if (evt >= 0) {
+          // Decode TCA8418 event: lower 7 bits = key code, bit 7 = press(0)/release(1)
+          bool is_release = (evt & 0x80) != 0;
+          int key_code = evt & 0x7F;
+          
+          // Calculate row and column from key code
+          // TCA8418 uses: key_code = (row * 10) + col
+          int row = key_code / 10;
+          int col = key_code % 10;
+          
+          Serial.printf("[%lu] %s: Row=%d Col=%d (keycode=%d, raw=0x%02X)\n",
+                       millis(),
+                       is_release ? "RELEASE" : "PRESS  ",
+                       row, col, key_code, evt);
+        }
+      }
+    }
+    
+    delay(1);  // Small delay to avoid busy-waiting
   }
   
   stopMonitoring();
@@ -275,8 +338,14 @@ void DiagnosticsMode::handleEventsCommand() {
   
   Serial.println("\n=== EVENT MONITOR ===");
   Serial.println("Monitoring ALL events");
-  Serial.println("Press Ctrl+C or any key to stop");
+  Serial.println("Press any key to stop monitoring");
   Serial.println();
+  
+  // Flush serial buffer to avoid immediate exit
+  delay(100);
+  while (Serial.available()) {
+    Serial.read();
+  }
   
   monitoring_events_ = true;
   
@@ -461,4 +530,47 @@ void DiagnosticsMode::controlMonitorCallback(const events::Event& evt, void* con
   }
   
   Serial.println();
+}
+
+// Get previous command from history (up arrow)
+String DiagnosticsMode::getPreviousCommand() {
+  if (command_history_.empty()) {
+    return "";
+  }
+  
+  // Initialize position to end if not navigating
+  if (history_position_ == -1) {
+    history_position_ = command_history_.size();
+  }
+  
+  // Move backward in history
+  if (history_position_ > 0) {
+    history_position_--;
+    return command_history_[history_position_];
+  }
+  
+  // Already at oldest command
+  return command_history_[0];
+}
+
+// Get next command from history (down arrow)
+String DiagnosticsMode::getNextCommand() {
+  if (command_history_.empty() || history_position_ == -1) {
+    return "";
+  }
+  
+  // Move forward in history
+  if (history_position_ < (int)command_history_.size() - 1) {
+    history_position_++;
+    return command_history_[history_position_];
+  }
+  
+  // At end of history, return to empty line
+  history_position_ = -1;
+  return "";
+}
+
+// Reset history navigation to most recent
+void DiagnosticsMode::resetHistoryPosition() {
+  history_position_ = -1;
 }

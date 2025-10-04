@@ -266,6 +266,49 @@ void test_encoder_with_button_pressed() {
   TEST_ASSERT_EQUAL(1, enc.position());
 }
 
+void test_button_ignores_duplicate_press() {
+  ButtonControl btn;
+  
+  // First press - should work
+  bool result1 = btn.onPress(100);
+  TEST_ASSERT_TRUE(result1);
+  TEST_ASSERT_TRUE(btn.isPressed());
+  
+  // Second press while already pressed - should be ignored
+  bool result2 = btn.onPress(150);
+  TEST_ASSERT_FALSE(result2);
+  TEST_ASSERT_TRUE(btn.isPressed());  // Still pressed
+  
+  // Release - should work
+  bool result3 = btn.onRelease(200);
+  TEST_ASSERT_TRUE(result3);
+  TEST_ASSERT_FALSE(btn.isPressed());
+}
+
+void test_button_ignores_release_when_not_pressed() {
+  ButtonControl btn;
+  
+  // Release when not pressed - should be ignored
+  bool result1 = btn.onRelease(100);
+  TEST_ASSERT_FALSE(result1);
+  TEST_ASSERT_FALSE(btn.isPressed());
+  
+  // Press - should work
+  bool result2 = btn.onPress(150);
+  TEST_ASSERT_TRUE(result2);
+  TEST_ASSERT_TRUE(btn.isPressed());
+  
+  // Release - should work
+  bool result3 = btn.onRelease(200);
+  TEST_ASSERT_TRUE(result3);
+  TEST_ASSERT_FALSE(btn.isPressed());
+  
+  // Another release - should be ignored
+  bool result4 = btn.onRelease(250);
+  TEST_ASSERT_FALSE(result4);
+  TEST_ASSERT_FALSE(btn.isPressed());
+}
+
 // ============================================================================
 // Main
 // ============================================================================
@@ -301,6 +344,10 @@ int main(int argc, char **argv) {
   // Integration tests
   RUN_TEST(test_button_rapid_press_release);
   RUN_TEST(test_encoder_with_button_pressed);
+  
+  // Invalid state transition handling
+  RUN_TEST(test_button_ignores_duplicate_press);
+  RUN_TEST(test_button_ignores_release_when_not_pressed);
   
   return UNITY_END();
 }

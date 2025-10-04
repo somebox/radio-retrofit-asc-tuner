@@ -24,17 +24,28 @@ public:
     , change_time_(0) {}
   
   // State changes (called by InputManager)
-  void onPress(unsigned long now) {
-    previous_ = current_;
-    current_ = Pressed;
-    press_time_ = now;
-    change_time_ = now;
+  // Returns true if state change was applied, false if ignored (invalid transition)
+  bool onPress(unsigned long now) {
+    // Only accept press if currently released
+    if (current_ == Released) {
+      previous_ = current_;
+      current_ = Pressed;
+      press_time_ = now;
+      change_time_ = now;
+      return true;
+    }
+    return false;  // Ignore duplicate press
   }
   
-  void onRelease(unsigned long now) {
-    previous_ = current_;
-    current_ = Released;
-    change_time_ = now;
+  bool onRelease(unsigned long now) {
+    // Only accept release if currently pressed
+    if (current_ == Pressed) {
+      previous_ = current_;
+      current_ = Released;
+      change_time_ = now;
+      return true;
+    }
+    return false;  // Ignore release when not pressed
   }
   
   // Frame update (for edge detection)
@@ -209,6 +220,94 @@ private:
   int num_positions_;
   int current_position_;
   int previous_position_;
+};
+
+// Analog control - tracks potentiometer/analog input with change detection
+class AnalogControl {
+public:
+  AnalogControl(int pin = -1, int deadzone = 10, unsigned long min_update_interval_ms = 100)
+    : pin_(pin)
+    , current_value_(0)
+    , previous_value_(0)
+    , raw_value_(0)
+    , deadzone_(deadzone)
+    , min_update_interval_ms_(min_update_interval_ms)
+    , last_poll_time_(0)
+    , last_change_time_(0) {}
+  
+  // Called by InputManager to read ADC value
+  void poll(unsigned long now) {
+    if (pin_ < 0) return;
+    
+#ifdef ARDUINO
+    // Read 12-bit ADC (ESP32 native resolution)
+    raw_value_ = analogRead(pin_);
+    
+    // Apply deadzone and time throttling
+    int diff = abs(raw_value_ - current_value_);
+    
+    // Only update if deadzone threshold is exceeded AND enough time has passed
+    // (or this is the first change - last_change_time_ == 0)
+    if (diff > deadzone_ && 
+        (last_change_time_ == 0 || (now - last_change_time_) >= min_update_interval_ms_)) {
+      current_value_ = raw_value_;
+      last_change_time_ = now;
+    }
+#endif
+    
+    last_poll_time_ = now;
+  }
+  
+  void update(unsigned long now) {
+    previous_value_ = current_value_;
+  }
+  
+  // Query API
+  int value() const { return current_value_; }
+  int rawValue() const { return raw_value_; }
+  bool changed() const { return current_value_ != previous_value_; }
+  int delta() const { return current_value_ - previous_value_; }
+  
+  // Convert 12-bit ADC (0-4095) to byte (0-255)
+  uint8_t valueAsByte() const {
+    return (current_value_ * 255) / 4095;
+  }
+  
+  // Convert to percentage (0-100)
+  int valueAsPercent() const {
+    return (current_value_ * 100) / 4095;
+  }
+  
+  // Configuration
+  void setPin(int pin) { pin_ = pin; }
+  void setDeadzone(int deadzone) { deadzone_ = deadzone; }
+  void setMinUpdateInterval(unsigned long interval_ms) { min_update_interval_ms_ = interval_ms; }
+  int getPin() const { return pin_; }
+  
+#ifndef ARDUINO
+  // Test-only: inject simulated ADC value (native tests only)
+  void _test_injectValue(int value, unsigned long now) {
+    raw_value_ = value;
+    int diff = abs(raw_value_ - current_value_);
+    // Match production logic: allow first change or after throttle period
+    if (diff > deadzone_ && 
+        (last_change_time_ == 0 || (now - last_change_time_) >= min_update_interval_ms_)) {
+      current_value_ = raw_value_;
+      last_change_time_ = now;
+    }
+    last_poll_time_ = now;
+  }
+#endif
+  
+private:
+  int pin_;
+  int current_value_;      // Smoothed value after deadzone
+  int previous_value_;     // Previous smoothed value
+  int raw_value_;          // Raw ADC reading
+  int deadzone_;           // Minimum change threshold
+  unsigned long min_update_interval_ms_;  // Minimum time between updates
+  unsigned long last_poll_time_;
+  unsigned long last_change_time_;
 };
 
 } // namespace Input

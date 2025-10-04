@@ -96,6 +96,13 @@ bool RadioHardware::initialize() {
     Serial.println("InputManager initialized with 8 buttons + encoder");
   }
   
+  // Register potentiometer (ID 0, always available)
+  // Deadzone: 50 (out of 4095), Min update interval: 150ms (prevents oscillations)
+  input_manager_.registerAnalog(0, HardwareConfig::PIN_VOLUME_POT, 50, 150);
+  
+  // Initialize VU meter backlights to dim level
+  setVUMeterBacklightBrightness(HardwareConfig::LED_BRIGHTNESS_DIM);
+  
   initialized_ = true;
   
   Serial.println("=== RadioHardware Initialization Complete ===");
@@ -194,10 +201,8 @@ void RadioHardware::setLED(int row, int col, uint8_t brightness) {
   }
   
   // Direct LED control using row/col (SW/CS pins)
+  // IS31FL3737 drawPixel takes (x=CS, y=SW, brightness)
   preset_led_driver_->drawPixel(col, row, brightness);
-  
-  //Serial.printf("Set LED (SW%d, CS%d) to brightness %d\n", 
-  //              row, col, brightness);
 }
 
 void RadioHardware::setPresetLED(int preset_num, uint8_t brightness) {
@@ -222,8 +227,15 @@ void RadioHardware::setPresetLED(int preset_num, uint8_t brightness) {
 void RadioHardware::clearAllPresetLEDs() {
   if (!preset_led_ready_) return;
   
-  preset_led_driver_->clear();
-  // Serial.println("Cleared all preset LEDs");
+  // Only clear preset button LEDs (row 3, cols 0-8), not the entire matrix
+  // This preserves mode LEDs, VU meter LEDs, etc.
+  using namespace HardwareConfig;
+  for (int i = 0; i < NUM_PRESETS; i++) {
+    const auto* led = getPresetLED(i);
+    if (led) {
+      preset_led_driver_->drawPixel(led->cs_pin, led->sw_pin, 0);
+    }
+  }
 }
 
 void RadioHardware::updatePresetLEDs() {
@@ -236,7 +248,25 @@ void RadioHardware::setGlobalBrightness(uint8_t brightness) {
   if (!preset_led_ready_) return;
   
   preset_led_driver_->setGlobalCurrent(brightness);
-  Serial.printf("Preset LED global brightness set to %d\n", brightness);
+}
+
+void RadioHardware::setVUMeterBacklightBrightness(uint8_t brightness) {
+  if (!preset_led_ready_) return;
+  
+  // Set only the VU meter backlight LEDs (indices 2 and 4)
+  // Index 2: Tuning Backlight (row 3, col 9)
+  // Index 4: Signal Backlight (row 3, col 10)
+  const auto* tuning_backlight = HardwareConfig::getVUMeterLED(2);
+  const auto* signal_backlight = HardwareConfig::getVUMeterLED(4);
+  
+  if (tuning_backlight) {
+    setLED(tuning_backlight->sw_pin, tuning_backlight->cs_pin, brightness);
+  }
+  if (signal_backlight) {
+    setLED(signal_backlight->sw_pin, signal_backlight->cs_pin, brightness);
+  }
+  
+  preset_led_driver_->show();
 }
 
 void RadioHardware::testPresetLEDs() {
@@ -337,6 +367,13 @@ bool RadioHardware::initializeKeypad() {
   Serial.printf("Keypad matrix configured for %dx%d (%d total buttons)\n", 
                 KEYPAD_ROWS, KEYPAD_COLS, KEYPAD_ROWS * KEYPAD_COLS);
   
+  // Flush all events (key + GPIO) and clear INT_STAT register
+  // This clears any stale events from hardware power-on or previous session
+  uint8_t flushed = keypad_.flush();
+  if (flushed > 0) {
+    Serial.printf("Flushed %d stale events from TCA8418 FIFO\n", flushed);
+  }
+  
   Serial.printf("TCA8418 keypad controller initialized successfully at 0x%02X\n", I2C_ADDR_KEYPAD);
   return true;
 }
@@ -391,15 +428,22 @@ void RadioHardware::showProgress(int progress) {
   // Clamp progress to 0-100%
   progress = max(0, min(100, progress));
 
-  // Progress from 0-100%, map to 8 LEDs (preset buttons 0-7)
+  // Progress from 0-100%, map to 8 preset LEDs
   int active_leds = (progress * 8) / 100;
 
-  // Clear all LEDs first
+  // Clear all preset LEDs first (only touches preset LEDs, not mode LEDs)
   clearAllPresetLEDs();
 
-  // Light up LEDs from left to right based on progress
-  for (int i = 0; i < 8 && i < active_leds; i++) {
-    setLED(0, i, 255);  // Row 0, columns 0-7
+  // Light up preset LEDs from left to right based on progress using HardwareConfig
+  // Physical order: Preset 1, 2, 3, 4, 5, 6, 7, Memory (left to right on panel)
+  // Array order: Index 0=Preset 1, 1=Preset 2, etc.
+  using namespace HardwareConfig;
+  for (int i = 0; i < 8 && i < active_leds && i < NUM_PRESETS; i++) {
+    const auto* led = getPresetLED(i);
+    if (led) {
+      setLED(led->sw_pin, led->cs_pin, 255);
+      Serial.printf("  Progress LED %d: SW%d CS%d\n", i+1, led->sw_pin, led->cs_pin);
+    }
   }
 
   // Update the display immediately
