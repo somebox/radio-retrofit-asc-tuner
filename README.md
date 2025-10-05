@@ -8,16 +8,35 @@ The AS-5000E tuner from the late 1970s was an early digital tuner which featured
 
 The display was originally a 7-segment frequency display, replaced with [RetroText](https://github.com/PixelTheater/retrotext) to form a custom 18-char 4×6 LED matrix display. The buttons and LEDs are controlled with the [Lights n' Buttons](https://github.com/PixelTheater/lights-and-buttons) PCB, which features the IS31FL3737 LED driver (12×11 usable matrix) and the TCA8418 keypad controller. There's a single big tuner knob which has been re-wired to a pushbutton rotary encoder for changing stations, selecting presets, and navigating menus.
 
-## Overview of Firmware
+## Implementation
 
-This firmware interfaces with the controls and defines some basic modes and behaviors.
+This project has two firmware implementations:
 
-- Startup: scans and tests the required components, initializes the drivers and starting state, with status and animation displayed.
-- Defines modes: select presets with buttons and switches, while manages state, timeouts, visual feedback and what mode the user is in.
-- Playlist access: allows user to scroll through more detailed playlist, and provides configuration and navigation options
-- Source mode: switch between internet radio, local media files, spotify, etc. This interfaces with modules that manage the actual playback and audio output, and provide status feedback and control.
+### ESPHome Components (Current/Recommended)
 
-**Management**: `PresetManager` queries `InputManager` for button states, manages mode selection, LED feedback, and announcements.
+Custom ESPHome components provide tight integration with Home Assistant:
+- **`tca8418_keypad`** - I2C keyboard matrix controller
+- **`retrotext_display`** - LED matrix display (72×6 pixels, 18 characters with automatic scrolling)
+- **`radio_controller`** - High-level preset and control management
+
+**Documentation:** See [`doc/esphome.md`](doc/esphome.md) for setup and usage.
+
+**Features:**
+- Preset buttons trigger Home Assistant automations
+- Display shows station metadata with automatic scrolling
+- WiFi status indicators
+- Encoder button for stop/play control
+- All entities exposed to Home Assistant
+
+### Native PlatformIO Firmware (Legacy)
+
+Original standalone firmware with direct audio playback:
+- Startup diagnostics and hardware tests
+- Multiple modes: presets, playlist navigation, source selection
+- Direct audio output management
+- `PresetManager` handles button states and mode switching
+
+**Code:** See `src/` and `include/` directories.
 
 ## Hardware and Controls
 

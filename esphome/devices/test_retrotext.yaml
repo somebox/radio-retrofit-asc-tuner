@@ -1,0 +1,36 @@
+external_components:
+  - source:
+      type: local
+      path: ../components
+
+esphome:
+  name: display-test
+  friendly_name: RetroText Display Test
+
+esp32:
+  board: esp-wrover-kit
+  framework:
+    type: arduino
+
+logger:
+  level: DEBUG
+
+# I2C bus (matches our hardware)
+i2c:
+  sda: GPIO21
+  scl: GPIO22
+  scan: true
+  frequency: 400kHz
+
+# RetroText Display - 3 boards for 72x6 pixel display
+# Hardware: AS5000E RetroText modules
+# - Board 1 (left):   0x50 (ADDR=GND)
+# - Board 2 (middle): 0x5A (ADDR=VCC)  
+# - Board 3 (right):  0x5F (ADDR=SDA)
+retrotext_display:
+  id: my_display
+  brightness: 180
+  boards:
+    - 0x50  # Board 0 (left): ADDR=GND
+    - 0x5F  # Board 1 (middle): ADDR=VCC  
+    - 0x5A  # Board 2 (right): ADDR=SDA

@@ -6,15 +6,36 @@ external_components:
 esphome:
   name: retro-radio
   friendly_name: Retro Radio
-  libraries:
-    - "SPI"
-    - "Adafruit BusIO"
+  on_boot:
+    priority: -100
+    then:
+      - lambda: 'id(controller).set_preset_target_sensor(id(current_media_id));'
+
+# Spinner animation for loading state
+interval:
+  - interval: 500ms
+    then:
+      - lambda: |-
+          static int spinner_pos = 0;
+          static const char spinner_chars[] = "/-\\|";
+          
+          if (id(stream_state).state == "loading") {
+            // Show station name + spinner while connecting
+            std::string station = id(station_name).state;
+            if (station.empty()) {
+              station = "Connecting";
+            }
+            
+            // Add spinner character at the end
+            std::string display_text = station + " " + spinner_chars[spinner_pos];
+            id(display).set_text(display_text.c_str());
+            spinner_pos = (spinner_pos + 1) % 4;
+          }
 
 esp32:
   board: esp32dev
   framework:
     type: arduino
-    platform_version: 6.9.0
 
 logger:
   level: DEBUG
@@ -29,6 +50,21 @@ wifi:
   password: !secret wifi_password
   ap:
     ssid: "Retro Radio Fallback"
+  
+  # Show connection status on display briefly, then let normal operation take over
+  on_connect:
+    - lambda: 'id(display).set_text("CONNECTED");'
+    - delay: 2s
+    - lambda: |-
+        // Clear to "Ready" if nothing is playing
+        if (id(now_playing).state.empty() || id(now_playing).state == "unknown") {
+          id(display).set_text("Ready");
+        } else {
+          id(display).set_text(id(now_playing).state.c_str());
+        }
+  
+  on_disconnect:
+    - lambda: 'id(display).set_text("WIFI DISCONNECTED");'
 
 # I2C bus configuration
 i2c:
@@ -37,70 +73,179 @@ i2c:
   scan: true
   frequency: 400kHz
 
-# Radio controller component - manages all hardware
+# RetroText Display - 3 boards for 72x6 pixel display (18 characters)
+retrotext_display:
+  id: display
+  brightness: 180
+  boards:
+    - 0x50  # Board 0 (left): ADDR=GND
+    - 0x5F  # Board 1 (middle): ADDR=VCC  
+    - 0x5A  # Board 2 (right): ADDR=SDA
+
+# TCA8418 Keypad - Hardware matrix configuration
+# AS5000E has 4 rows x 10 columns
+tca8418_keypad:
+  id: keypad
+  address: 0x34
+  rows: 4
+  columns: 10
+
+# Radio Controller - High-level preset management
+# Note: Service calls disabled, using automation with text sensor instead
 radio_controller:
-  id: radio
-  # Preset button triggers for HA automations
-  on_preset:
-    - preset_num: 0
-      then:
-        - homeassistant.service:
-            service: script.play_radio_preset_1
-    - preset_num: 1
-      then:
-        - homeassistant.service:
-            service: script.play_radio_preset_2
-    - preset_num: 2
-      then:
-        - homeassistant.service:
-            service: script.play_radio_preset_3
-    - preset_num: 3
-      then:
-        - homeassistant.service:
-            service: script.play_radio_preset_4
-    - preset_num: 4
-      then:
-        - homeassistant.service:
-            service: script.play_radio_preset_5
-    - preset_num: 5
-      then:
-        - homeassistant.service:
-            service: script.play_radio_preset_6
-    - preset_num: 6
-      then:
-        - homeassistant.service:
-            service: script.play_radio_preset_7
+  id: controller
+  keypad_id: keypad
+  display_id: display
+  service: ""  # Disabled - using automation instead
+  
+  presets:
+    - button: {row: 3, column: 3}
+      display: "Radio 3FACH Luz"
+      target: "Radio 3FACH"
+    
+    - button: {row: 3, column: 2}
+      display: "WKCR Columbia U"
+      target: "WKCR"
+    
+    - button: {row: 3, column: 1}
+      display: "France Musique Hi-fi"
+      target: "France Musique Hi-fi"
+    
+    - button: {row: 3, column: 0}
+      display: "Radio Meuh FR"
+      target: "Radio Meuh"
+    
+    - button: {row: 3, column: 8}
+      display: "BBC NEWS"
+      target: "BBC WORLD SERVICE"
+    
+    - button: {row: 3, column: 7}
+      display: "Radio LoRa"
+      target: "Radio LoRa"
+    
+    - button: {row: 3, column: 6}
+      display: "WTUL Tulane"
+      target: "WTUL New Orleans"
+  
+  controls:
+    encoder_button: {row: 2, column: 1}
 
-# Display mode selection
-select:
-  - platform: template
-    name: "Display Mode"
-    id: display_mode
-    options: 
-      - "radio"
-      - "clock"
-      - "animation"
-    initial_option: "radio"
-    optimistic: false
-    set_action:
-      - lambda: id(radio).set_mode(x);
-
-# Brightness control (synchronized with potentiometer)
-number:
-  - platform: template
-    name: "Display Brightness"
-    id: display_brightness
-    min_value: 0
-    max_value: 255
-    step: 1
-    initial_value: 128
-    optimistic: false
-    set_action:
-      - lambda: id(radio).set_brightness((int)x);
-
-# Metadata display (track info, etc.)
+# Text sensors
 text_sensor:
+  # Current preset name (display text)
+  - platform: radio_controller
+    radio_controller_id: controller
+    name: "Current Preset"
+    icon: mdi:radio
+    on_value:
+      then:
+        # Store station name for use during loading
+        - lambda: 'id(station_name).publish_state(x);'
+  
+  # Current preset target (media_id for automation)
   - platform: template
-    name: "Display Text"
-    id: display_text
-    icon: "mdi:music-note"
+    name: "Current Media ID"
+    id: current_media_id
+    icon: mdi:music-circle
+  
+  # Now playing from Home Assistant
+  - platform: homeassistant
+    id: now_playing
+    entity_id: sensor.radio_now_playing
+    on_value:
+      then:
+        # Delay to allow preset name to show first
+        - delay: 1.5s
+        # Only update display when not loading (loading shows spinner)
+        - lambda: |-
+            if (id(stream_state).state != "loading") {
+              id(display).set_text(x.c_str());
+            }
+
+# Select for preset selection
+select:
+  - platform: radio_controller
+    radio_controller_id: controller
+    name: "Radio Preset"
+    icon: mdi:radio
+
+# Text input for stream state (set by automation)
+text:
+  - platform: template
+    name: "Stream State"
+    id: stream_state
+    optimistic: true
+    initial_value: "stopped"
+    mode: text
+    on_value:
+      then:
+        - lambda: |-
+            if (x == "stopped") {
+              id(display).set_text("STOPPED");
+            }
+            // "loading" state will show station name + spinner in interval
+            // "playing" state will be overridden by now_playing sensor
+  
+  - platform: template
+    name: "Station Name"
+    id: station_name
+    optimistic: true
+    initial_value: ""
+    mode: text
+    internal: true  # Hidden from HA UI
+
+# Optional: Expose preset buttons as binary sensors in Home Assistant
+binary_sensor:
+  - platform: tca8418_keypad
+    tca8418_keypad_id: keypad
+    name: "Preset Button 1"
+    row: 3
+    column: 3
+  
+  - platform: tca8418_keypad
+    tca8418_keypad_id: keypad
+    name: "Preset Button 2"
+    row: 3
+    column: 2
+  
+  - platform: tca8418_keypad
+    tca8418_keypad_id: keypad
+    name: "Preset Button 3"
+    row: 3
+    column: 1
+  
+  - platform: tca8418_keypad
+    tca8418_keypad_id: keypad
+    name: "Preset Button 4"
+    row: 3
+    column: 0
+  
+  - platform: tca8418_keypad
+    tca8418_keypad_id: keypad
+    name: "Preset Button 5"
+    row: 3
+    column: 8
+  
+  - platform: tca8418_keypad
+    tca8418_keypad_id: keypad
+    name: "Preset Button 6"
+    row: 3
+    column: 7
+  
+  - platform: tca8418_keypad
+    tca8418_keypad_id: keypad
+    name: "Preset Button 7"
+    row: 3
+    column: 6
+  
+  - platform: tca8418_keypad
+    tca8418_keypad_id: keypad
+    name: "Preset Button 8"
+    row: 3
+    column: 5
+  
+  - platform: tca8418_keypad
+    tca8418_keypad_id: keypad
+    name: "Encoder Button"
+    row: 2
+    column: 1

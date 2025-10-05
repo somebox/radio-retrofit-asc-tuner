@@ -1,0 +1,66 @@
+external_components:
+  - source:
+      type: local
+      path: ../components
+
+esphome:
+  name: keypad-test
+  friendly_name: TCA8418 Keypad Test
+
+esp32:
+  board: esp-wrover-kit
+  framework:
+    type: arduino
+
+logger:
+  level: DEBUG
+
+# I2C bus (matches our hardware)
+i2c:
+  sda: GPIO21
+  scl: GPIO22
+  scan: true
+  frequency: 400kHz
+
+# TCA8418 Keypad Component - Configured for AS5000E Hardware
+# Hardware matrix: 4 rows x 10 columns
+# Row 3: Preset buttons (cols 0,1,2,3,5,6,7,8)
+# Row 2: Encoder (cols 2,3,4) + Mode selector (cols 0,1,2,3)
+tca8418_keypad:
+  id: my_keypad
+  address: 0x34
+  rows: 4
+  columns: 10
+  
+  # ESPHome automation triggers (Step 5)
+  on_key_press:
+    - logger.log:
+        format: "🔘 Key PRESSED - row=%d, col=%d, key=%d"
+        args: ['row', 'col', 'key']
+  
+  on_key_release:
+    - logger.log:
+        format: "⬆️  Key RELEASED - row=%d, col=%d, key=%d"
+        args: ['row', 'col', 'key']
+
+# Optional: Expose specific keys as binary sensors (Step 6)
+binary_sensor:
+  # Preset buttons
+  - platform: tca8418_keypad
+    tca8418_keypad_id: my_keypad
+    name: "Preset Button 1"
+    row: 3
+    column: 3
+  
+  - platform: tca8418_keypad
+    tca8418_keypad_id: my_keypad
+    name: "Preset Button 2"
+    row: 3
+    column: 2
+  
+  # Encoder button
+  - platform: tca8418_keypad
+    tca8418_keypad_id: my_keypad
+    name: "Encoder Button"
+    row: 2
+    column: 2
