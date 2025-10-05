@@ -267,7 +267,7 @@ void RetroTextDisplay::update_display_() {
     }
   }
   
-  ESP_LOGD(TAG, "Display updated");
+  // ESP_LOGD(TAG, "Display updated");
 }
 
 void RetroTextDisplay::set_pixel_(int x, int y, uint8_t brightness) {

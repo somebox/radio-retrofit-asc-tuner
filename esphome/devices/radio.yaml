@@ -68,10 +68,11 @@ wifi:
 
 # I2C bus configuration
 i2c:
-  sda: GPIO21
-  scl: GPIO22
-  scan: true
-  frequency: 400kHz
+  - id: bus_a
+    sda: GPIO21
+    scl: GPIO22
+    scan: true
+    frequency: 400kHz
 
 # RetroText Display - 3 boards for 72x6 pixel display (18 characters)
 retrotext_display:
@@ -96,6 +97,7 @@ radio_controller:
   id: controller
   keypad_id: keypad
   display_id: display
+  i2c_id: bus_a  # Auto-initialize panel LEDs at 0x55
   service: ""  # Disabled - using automation instead
   
   presets:
@@ -117,7 +119,7 @@ radio_controller:
     
     - button: {row: 3, column: 8}
       display: "BBC NEWS"
-      target: "BBC WORLD SERVICE"
+      target: "radiobrowser://radio/98adecf7-2683-4408-9be7-02d3f9098eb8"
     
     - button: {row: 3, column: 7}
       display: "Radio LoRa"
@@ -136,6 +138,7 @@ text_sensor:
   - platform: radio_controller
     radio_controller_id: controller
     name: "Current Preset"
+    id: current_preset
     icon: mdi:radio
     on_value:
       then:
@@ -154,6 +157,21 @@ text_sensor:
     entity_id: sensor.radio_now_playing
     on_value:
       then:
+        # Sync preset LED when HA reports the current stream
+        - lambda: |-
+            ESP_LOGI("now_playing", "Received: %s", x.c_str());
+            // If we have a valid stream
+            if (!x.empty() && x != "Ready" && x != "unknown") {
+              // First try using stored media_id if available
+              if (!id(current_media_id).state.empty()) {
+                ESP_LOGI("now_playing", "Syncing LED with stored media_id: %s", id(current_media_id).state.c_str());
+                id(controller).sync_preset_led_from_target(id(current_media_id).state);
+              } else {
+                // Fallback: try matching now_playing text against preset targets
+                ESP_LOGI("now_playing", "No stored media_id, trying to match: %s", x.c_str());
+                id(controller).sync_preset_led_from_target(x);
+              }
+            }
         # Delay to allow preset name to show first
         - delay: 1.5s
         # Only update display when not loading (loading shows spinner)
@@ -180,6 +198,7 @@ text:
     on_value:
       then:
         - lambda: |-
+            ESP_LOGI("stream_state", "Stream state changed to: %s", x.c_str());
             if (x == "stopped") {
               id(display).set_text("STOPPED");
             }

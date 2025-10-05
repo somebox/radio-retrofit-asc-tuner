@@ -1,6 +1,6 @@
 import esphome.codegen as cg
 import esphome.config_validation as cv
-from esphome.components import tca8418_keypad, retrotext_display, text_sensor, select
+from esphome.components import tca8418_keypad, retrotext_display, text_sensor, select, i2c
 from esphome.const import CONF_ID, CONF_ICON
 from esphome import automation
 
@@ -12,6 +12,7 @@ RadioControllerSelect = radio_controller_ns.class_('RadioControllerSelect', sele
 
 CONF_KEYPAD_ID = 'keypad_id'
 CONF_DISPLAY_ID = 'display_id'
+CONF_I2C_ID = 'i2c_id'
 CONF_PRESETS = 'presets'
 CONF_BUTTON = 'button'
 CONF_ROW = 'row'
@@ -51,6 +52,7 @@ CONFIG_SCHEMA = cv.Schema({
     cv.GenerateID(): cv.declare_id(RadioController),
     cv.Required(CONF_KEYPAD_ID): cv.use_id(tca8418_keypad.TCA8418Component),
     cv.Required(CONF_DISPLAY_ID): cv.use_id(retrotext_display.RetroTextDisplay),
+    cv.Optional(CONF_I2C_ID): cv.use_id(i2c.I2CBus),
     cv.Optional(CONF_PRESETS, default=[]): cv.ensure_list(PRESET_SCHEMA),
     cv.Optional(CONF_CONTROLS): CONTROLS_SCHEMA,
     # Default service to call for all presets (can be overridden per-preset)
@@ -83,6 +85,11 @@ async def to_code(config):
     
     cg.add(var.set_keypad(keypad))
     cg.add(var.set_display(display))
+    
+    # Optional: Get I2C bus for automatic panel LED initialization at 0x55
+    if CONF_I2C_ID in config:
+        i2c_bus = await cg.get_variable(config[CONF_I2C_ID])
+        cg.add(var.set_i2c_bus(i2c_bus))
     
     # Set default service
     cg.add(var.set_default_service(config[CONF_SERVICE]))
