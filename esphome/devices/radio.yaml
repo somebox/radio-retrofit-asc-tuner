@@ -11,8 +11,24 @@ esphome:
     then:
       - lambda: 'id(controller).set_preset_target_sensor(id(current_media_id));'
 
-# Spinner animation for loading state
+# Global variables for clock mode
+globals:
+  - id: stopped_time
+    type: unsigned long
+    restore_value: no
+    initial_value: '0'
+  - id: clock_mode_active
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+  - id: normal_brightness
+    type: uint8_t
+    restore_value: no
+    initial_value: '180'
+
+# Intervals for animations and clock
 interval:
+  # Spinner animation for loading state
   - interval: 500ms
     then:
       - lambda: |-
@@ -30,6 +46,63 @@ interval:
             std::string display_text = station + " " + spinner_chars[spinner_pos];
             id(display).set_text(display_text.c_str());
             spinner_pos = (spinner_pos + 1) % 4;
+          }
+  
+  # Clock mode checker and updater
+  - interval: 1s
+    then:
+      - lambda: |-
+          // Only enter clock mode if we're truly stopped (no active media)
+          bool truly_stopped = (id(stream_state).state == "stopped" && 
+                                id(current_media_id).state.empty());
+          
+          if (truly_stopped) {
+            // Initialize stopped_time if this is the first check
+            if (id(stopped_time) == 0) {
+              id(stopped_time) = millis();
+            }
+            
+            // Enter clock mode after 10 seconds of being stopped
+            unsigned long stopped_duration = (millis() - id(stopped_time)) / 1000;
+            if (stopped_duration >= 10 && !id(clock_mode_active)) {
+              ESP_LOGI("clock", "Entering clock mode after %lu seconds", stopped_duration);
+              id(clock_mode_active) = true;
+              
+              // Dim display brightness
+              id(display).set_brightness(60);
+            }
+            
+            // Update clock display if in clock mode (with date format like ClockDisplay.cpp)
+            if (id(clock_mode_active)) {
+              auto time = id(ha_time).now();
+              if (time.is_valid()) {
+                // Format as "Aug 12 Th 12:43:25" (18 characters)
+                char time_str[20];
+                const char* months[] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun", 
+                                        "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
+                const char* days[] = {"Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"};
+                
+                snprintf(time_str, sizeof(time_str), "%s %2d %s %02d:%02d:%02d",
+                         months[time.month - 1],
+                         time.day_of_month,
+                         days[time.day_of_week - 1],
+                         time.hour,
+                         time.minute,
+                         time.second);
+                id(display).set_text(time_str);
+              }
+            }
+          } else {
+            // Exit clock mode if streaming, loading, or media is active
+            if (id(clock_mode_active)) {
+              ESP_LOGI("clock", "Exiting clock mode");
+              id(clock_mode_active) = false;
+              
+              // Restore normal brightness
+              id(display).set_brightness(id(normal_brightness));
+            }
+            // Reset stopped timer
+            id(stopped_time) = 0;
           }
 
 esp32:
@@ -74,10 +147,15 @@ i2c:
     scan: true
     frequency: 400kHz
 
+# Time component (synced from Home Assistant)
+time:
+  - platform: homeassistant
+    id: ha_time
+
 # RetroText Display - 3 boards for 72x6 pixel display (18 characters)
 retrotext_display:
   id: display
-  brightness: 180
+  brightness: 180  # Normal brightness (clock mode uses 60)
   boards:
     - 0x50  # Board 0 (left): ADDR=GND
     - 0x5F  # Board 1 (middle): ADDR=VCC  
@@ -160,17 +238,18 @@ text_sensor:
         # Sync preset LED when HA reports the current stream
         - lambda: |-
             ESP_LOGI("now_playing", "Received: %s", x.c_str());
-            // If we have a valid stream
-            if (!x.empty() && x != "Ready" && x != "unknown") {
-              // First try using stored media_id if available
-              if (!id(current_media_id).state.empty()) {
-                ESP_LOGI("now_playing", "Syncing LED with stored media_id: %s", id(current_media_id).state.c_str());
-                id(controller).sync_preset_led_from_target(id(current_media_id).state);
-              } else {
-                // Fallback: try matching now_playing text against preset targets
-                ESP_LOGI("now_playing", "No stored media_id, trying to match: %s", x.c_str());
-                id(controller).sync_preset_led_from_target(x);
+            
+            // Exit clock mode if we have valid media
+            if (!id(current_media_id).state.empty()) {
+              if (id(clock_mode_active)) {
+                ESP_LOGI("clock", "Exiting clock mode due to active media");
+                id(clock_mode_active) = false;
+                id(display).set_brightness(id(normal_brightness));
               }
+              
+              // Sync LED using the stored media_id (always use this, not now_playing text)
+              ESP_LOGI("now_playing", "Syncing LED with media_id: %s", id(current_media_id).state.c_str());
+              id(controller).sync_preset_led_from_target(id(current_media_id).state);
             }
         # Delay to allow preset name to show first
         - delay: 1.5s
@@ -193,7 +272,7 @@ text:
     name: "Stream State"
     id: stream_state
     optimistic: true
-    initial_value: "stopped"
+    initial_value: "ready"  # Changed from "stopped" to prevent clock flash on boot
     mode: text
     on_value:
       then:
@@ -201,6 +280,8 @@ text:
             ESP_LOGI("stream_state", "Stream state changed to: %s", x.c_str());
             if (x == "stopped") {
               id(display).set_text("STOPPED");
+              // Reset stopped timer to start counting for clock mode
+              id(stopped_time) = 0;
             }
             // "loading" state will show station name + spinner in interval
             // "playing" state will be overridden by now_playing sensor

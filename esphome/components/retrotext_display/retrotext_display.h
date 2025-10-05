@@ -28,7 +28,7 @@ class RetroTextDisplay : public Component {
 
   // Configuration
   void set_i2c_bus(i2c::I2CBus *bus) { this->i2c_bus_ = bus; }
-  void set_brightness(uint8_t brightness) { this->brightness_ = brightness; }
+  void set_brightness(uint8_t brightness);
   void set_board_addresses(uint8_t addr1, uint8_t addr2, uint8_t addr3);
   void set_scroll_delay(uint32_t delay_ms) { this->scroll_delay_ms_ = delay_ms; }
   void set_scroll_mode(uint8_t mode) { this->scroll_mode_ = mode; }

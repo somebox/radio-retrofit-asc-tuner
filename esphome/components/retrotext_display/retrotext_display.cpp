@@ -125,6 +125,17 @@ void RetroTextDisplay::set_text(const char *text) {
   ESP_LOGD(TAG, "Set text: '%s'", this->text_buffer_);
 }
 
+void RetroTextDisplay::set_brightness(uint8_t brightness) {
+  this->brightness_ = brightness;
+  // Update all drivers with new brightness
+  for (size_t i = 0; i < 3; i++) {
+    if (this->drivers_[i] && this->drivers_[i]->is_initialized()) {
+      this->drivers_[i]->set_global_current(brightness);
+    }
+  }
+  ESP_LOGD(TAG, "Brightness set to: %d", brightness);
+}
+
 void RetroTextDisplay::clear() {
   this->buffer_.fill(0);
   this->text_buffer_[0] = '\0';
