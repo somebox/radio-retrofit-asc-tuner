@@ -51,6 +51,12 @@ void RetroTextDisplay::loop() {
   
   if (should_scroll) {
     uint32_t now = millis();
+    
+    // Wait scroll_start_delay_ms before starting to scroll (gives user time to read)
+    if (now - this->text_set_time_ < this->scroll_start_delay_ms_) {
+      return;  // Don't scroll yet
+    }
+    
     if (now - this->last_scroll_time_ >= this->scroll_delay_ms_) {
       this->last_scroll_time_ = now;
       
@@ -116,13 +122,50 @@ void RetroTextDisplay::set_text(const char *text) {
   // Calculate actual text length
   this->text_length_ = strlen(this->text_buffer_);
   
-  // Reset scroll position when text changes
+  // Reset scroll position and timing when text changes
   this->scroll_position_ = 0;
-  this->last_scroll_time_ = millis();
+  uint32_t now = millis();
+  this->text_set_time_ = now;      // Record when text was set
+  this->last_scroll_time_ = now;   // Reset scroll timer
   
   this->text_dirty_ = true;
   
   ESP_LOGD(TAG, "Set text: '%s'", this->text_buffer_);
+}
+
+void RetroTextDisplay::set_text_with_brightness(const char *text, uint8_t date_brightness, uint8_t time_brightness, int split_pos) {
+  if (text == nullptr) {
+    return;
+  }
+  
+  // Clear the text buffer and framebuffer
+  memset(this->text_buffer_, 0, sizeof(this->text_buffer_));
+  this->buffer_.fill(0);
+  
+  // Copy text to buffer
+  strncpy(this->text_buffer_, text, MAX_TEXT_LENGTH - 1);
+  this->text_buffer_[MAX_TEXT_LENGTH - 1] = '\0';
+  this->text_length_ = strlen(this->text_buffer_);
+  
+  // Render with variable brightness
+  int x_pos = 0;
+  for (size_t i = 0; i < this->text_length_ && i < 18; i++) {
+    uint8_t char_brightness = (i < split_pos) ? date_brightness : time_brightness;
+    this->draw_character_(this->text_buffer_[i], x_pos, char_brightness);
+    x_pos += 4;
+  }
+  
+  // Update display immediately (bypass normal render cycle)
+  this->update_display_();
+  
+  // Reset scroll state
+  this->scroll_position_ = 0;
+  uint32_t now = millis();
+  this->text_set_time_ = now;
+  this->last_scroll_time_ = now;
+  
+  ESP_LOGD(TAG, "Set text with brightness: '%s' (date:%d, time:%d, split:%d)", 
+           this->text_buffer_, date_brightness, time_brightness, split_pos);
 }
 
 void RetroTextDisplay::set_brightness(uint8_t brightness) {
@@ -189,6 +232,7 @@ void RetroTextDisplay::render_text_() {
   
   if (should_scroll) {
     // Render 18 characters starting from scroll_position_ with wraparound
+    // Text wraps with " * " separator (3 chars total)
     for (int display_pos = 0; display_pos < 18; display_pos++) {
       // Calculate source position in text buffer (with wraparound)
       int text_pos = (this->scroll_position_ + display_pos) % (this->text_length_ + 3);
@@ -198,8 +242,13 @@ void RetroTextDisplay::render_text_() {
         // Character from actual text
         ch = this->text_buffer_[text_pos];
       } else {
-        // Spacing between scroll cycles (3 spaces)
-        ch = ' ';
+        // Separator between scroll cycles: " * " (3 chars)
+        int separator_pos = text_pos - this->text_length_;
+        if (separator_pos == 0 || separator_pos == 2) {
+          ch = ' ';  // Space before and after asterisk
+        } else {
+          ch = '*';  // Asterisk in the middle
+        }
       }
       
       this->draw_character_(ch, x_pos, this->brightness_);

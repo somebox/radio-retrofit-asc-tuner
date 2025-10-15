@@ -63,9 +63,21 @@ class RadioController : public Component {
   void sync_preset_led_from_name(const std::string &preset_name);
   void sync_preset_led_from_target(const std::string &target);
   
+  // Playlist browsing
+  void load_playlist_data(const std::string &json_data);
+  void enter_playlist_mode();
+  void exit_playlist_mode();
+  void scroll_playlist(int direction);  // +1 next, -1 previous
+  void select_current_playlist();
+  bool is_playlist_playing() const { return this->playlist_playing_; }
+  
+  // Set text sensor references for mode and index
+  void set_radio_mode_sensor(text_sensor::TextSensor *sensor) { this->radio_mode_sensor_ = sensor; }
+  
  protected:
   void handle_key_press_(uint8_t row, uint8_t column);
   void handle_key_release_(uint8_t row, uint8_t column);
+  void process_encoder_rotation_();
   Preset* find_preset_(uint8_t row, uint8_t column);
   Preset* find_preset_by_name_(const std::string &name);
   void activate_preset_(Preset *preset);
@@ -83,12 +95,22 @@ class RadioController : public Component {
   i2c::I2CBus *i2c_bus_{nullptr};
   text_sensor::TextSensor *preset_text_sensor_{nullptr};
   text_sensor::TextSensor *preset_target_sensor_{nullptr};
+  text_sensor::TextSensor *radio_mode_sensor_{nullptr};
   select::Select *preset_select_{nullptr};
   
   std::string default_service_;
   std::vector<Preset> presets_;
   std::string current_preset_name_;
   uint8_t current_preset_index_{255};  // 255 = none
+  
+  // Playlist browsing state
+  struct PlaylistItem {
+    std::string name;
+    std::string uri;
+  };
+  bool playlist_mode_active_{false};
+  std::vector<PlaylistItem> playlists_;
+  size_t playlist_index_{0};
   
   // Panel LEDs (internal, automatic)
   std::unique_ptr<esphome::retrotext_display::IS31FL3737Driver> led_driver_;
@@ -103,6 +125,17 @@ class RadioController : public Component {
   bool has_encoder_button_{false};
   uint8_t encoder_row_{0};
   uint8_t encoder_column_{0};
+  
+  // Encoder rotation tracking (simple edge counting)
+  bool encoder_a_state_{false};
+  bool encoder_b_state_{false};
+  int8_t encoder_last_encoded_{0};
+  int32_t encoder_count_{0};         // Running count (like ESP32Encoder getCount())
+  int32_t last_encoder_count_{0};    // Last processed count
+  
+  // Playlist mode state
+  bool playlist_playing_{false};  // Currently playing a selected playlist
+  uint32_t last_playlist_interaction_{0};  // For timeout
 };
 
 }  // namespace radio_controller

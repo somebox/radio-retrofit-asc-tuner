@@ -35,6 +35,7 @@ class RetroTextDisplay : public Component {
 
   // Public API
   void set_text(const char *text);
+  void set_text_with_brightness(const char *text, uint8_t date_brightness, uint8_t time_brightness, int split_pos);
   void clear();
   
   // Scroll modes
@@ -64,6 +65,8 @@ class RetroTextDisplay : public Component {
   // Scrolling state
   uint8_t scroll_mode_{SCROLL_AUTO};
   uint32_t scroll_delay_ms_{300};
+  uint32_t scroll_start_delay_ms_{1000};  // Wait 1s before starting to scroll
+  uint32_t text_set_time_{0};   // When text was last changed
   uint32_t last_scroll_time_{0};
   int scroll_position_{0};
   size_t text_length_{0};

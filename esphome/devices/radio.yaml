@@ -9,7 +9,10 @@ esphome:
   on_boot:
     priority: -100
     then:
-      - lambda: 'id(controller).set_preset_target_sensor(id(current_media_id));'
+      - lambda: |-
+          id(controller).set_preset_target_sensor(id(current_media_id));
+          id(controller).set_radio_mode_sensor(id(radio_mode));
+          id(radio_mode).publish_state("presets");
 
 # Global variables for clock mode
 globals:
@@ -35,15 +38,23 @@ interval:
           static int spinner_pos = 0;
           static const char spinner_chars[] = "/-\\|";
           
-          if (id(stream_state).state == "loading") {
+          // Only show spinner if loading AND not browsing playlists
+          bool is_browsing = (id(radio_mode).state == "playlists" && 
+                             !id(controller).is_playlist_playing());
+          
+          if (id(stream_state).state == "loading" && !is_browsing) {
             // Show station name + spinner while connecting
             std::string station = id(station_name).state;
             if (station.empty()) {
               station = "Connecting";
             }
             
-            // Add spinner character at the end
-            std::string display_text = station + " " + spinner_chars[spinner_pos];
+            // Build display with spinner always in last column (position 17, 0-indexed)
+            // Truncate or pad station name to 17 chars, then add spinner
+            if (station.length() > 17) {
+              station = station.substr(0, 17);
+            }
+            std::string display_text = station + std::string(17 - station.length(), ' ') + spinner_chars[spinner_pos];
             id(display).set_text(display_text.c_str());
             spinner_pos = (spinner_pos + 1) % 4;
           }
@@ -52,14 +63,21 @@ interval:
   - interval: 1s
     then:
       - lambda: |-
-          // Only enter clock mode if we're truly stopped (no active media)
-          bool truly_stopped = (id(stream_state).state == "stopped" && 
-                                id(current_media_id).state.empty());
+          // Enter clock mode when stopped and not in playlist mode
+          // Check multiple conditions since stream_state may not always be updated
+          bool in_playlist_mode = (id(radio_mode).state == "playlists");
+          bool stream_stopped = (id(stream_state).state == "stopped" || 
+                                 id(stream_state).state == "ready");
+          bool no_media = id(current_media_id).state.empty();
+          bool truly_stopped = (stream_stopped || no_media) && !in_playlist_mode;
           
           if (truly_stopped) {
             // Initialize stopped_time if this is the first check
             if (id(stopped_time) == 0) {
               id(stopped_time) = millis();
+              ESP_LOGD("clock", "Started stopped timer (stream:%s, media:%s)", 
+                       id(stream_state).state.c_str(), 
+                       id(current_media_id).state.c_str());
             }
             
             // Enter clock mode after 10 seconds of being stopped
@@ -68,20 +86,22 @@ interval:
               ESP_LOGI("clock", "Entering clock mode after %lu seconds", stopped_duration);
               id(clock_mode_active) = true;
               
-              // Dim display brightness
-              id(display).set_brightness(60);
+              // Use moderate brightness for clock (brighter than before)
+              id(display).set_brightness(100);
             }
             
-            // Update clock display if in clock mode (with date format like ClockDisplay.cpp)
+            // Update clock display if in clock mode
+            // Format: "Oct  5 Su 19:15:46" (date at lower brightness, time at higher)
             if (id(clock_mode_active)) {
               auto time = id(ha_time).now();
               if (time.is_valid()) {
-                // Format as "Aug 12 Th 12:43:25" (18 characters)
                 char time_str[20];
                 const char* months[] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun", 
                                         "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
                 const char* days[] = {"Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"};
                 
+                // Format: "Oct  5 Su 19:15:46" (18 chars)
+                // First 10 chars are date (dimmer), last 8 are time (brighter)
                 snprintf(time_str, sizeof(time_str), "%s %2d %s %02d:%02d:%02d",
                          months[time.month - 1],
                          time.day_of_month,
@@ -89,7 +109,9 @@ interval:
                          time.hour,
                          time.minute,
                          time.second);
-                id(display).set_text(time_str);
+                
+                // Render with date dimmer (60) and time brighter (180)
+                id(display).set_text_with_brightness(time_str, 60, 180, 10);
               }
             }
           } else {
@@ -114,6 +136,15 @@ logger:
   level: DEBUG
 
 api:
+  services:
+    # Custom service to load playlist data (bypasses 255 char text limit)
+    - service: load_playlists
+      variables:
+        playlist_json: string
+      then:
+        - lambda: |-
+            ESP_LOGI("playlist", "Received playlist data via service");
+            id(controller).load_playlist_data(playlist_json);
 
 ota:
   - platform: esphome
@@ -206,6 +237,10 @@ radio_controller:
     - button: {row: 3, column: 6}
       display: "WTUL Tulane"
       target: "WTUL New Orleans"
+    
+    - button: {row: 3, column: 5}
+      display: "BROWSE PLAYLISTS"
+      target: "__PLAYLIST_MODE__"
   
   controls:
     encoder_button: {row: 2, column: 1}
@@ -228,6 +263,12 @@ text_sensor:
     name: "Current Media ID"
     id: current_media_id
     icon: mdi:music-circle
+  
+  # Radio mode: "presets" or "playlists"
+  - platform: template
+    name: "Radio Mode"
+    id: radio_mode
+    icon: mdi:radio
   
   # Now playing from Home Assistant
   - platform: homeassistant
@@ -253,9 +294,13 @@ text_sensor:
             }
         # Delay to allow preset name to show first
         - delay: 1.5s
-        # Only update display when not loading (loading shows spinner)
+        # Only update display when not loading or browsing playlists
         - lambda: |-
-            if (id(stream_state).state != "loading") {
+            // Don't overwrite display if browsing playlists
+            bool is_browsing = (id(radio_mode).state == "playlists" && 
+                               !id(controller).is_playlist_playing());
+            
+            if (id(stream_state).state != "loading" && !is_browsing) {
               id(display).set_text(x.c_str());
             }
 
@@ -278,10 +323,18 @@ text:
       then:
         - lambda: |-
             ESP_LOGI("stream_state", "Stream state changed to: %s", x.c_str());
-            if (x == "stopped") {
+            
+            // Don't show "STOPPED" if in playlist mode at all
+            // (either browsing or just started playing)
+            bool in_playlist_mode = (id(radio_mode).state == "playlists");
+            
+            if (x == "stopped" && !in_playlist_mode) {
               id(display).set_text("STOPPED");
               // Reset stopped timer to start counting for clock mode
               id(stopped_time) = 0;
+              
+              // Clear media_id when stopped so clock mode can activate
+              id(current_media_id).publish_state("");
             }
             // "loading" state will show station name + spinner in interval
             // "playing" state will be overridden by now_playing sensor
@@ -292,6 +345,43 @@ text:
     optimistic: true
     initial_value: ""
     mode: text
+    internal: true  # Hidden from HA UI
+  
+  # Station Name (internal, used for loading spinner)
+  # Note: Playlist data is loaded via custom service below
+
+# Number sensors
+number:
+  # Display brightness control
+  - platform: template
+    name: "Display Brightness"
+    id: display_brightness
+    optimistic: true
+    min_value: 10
+    max_value: 255
+    step: 5
+    initial_value: 180
+    mode: slider
+    icon: mdi:brightness-6
+    on_value:
+      then:
+        - lambda: |-
+            // Update display brightness
+            id(display).set_brightness((uint8_t)x);
+            // Store as normal brightness (for restoring after clock mode)
+            id(normal_brightness) = (uint8_t)x;
+            ESP_LOGI("brightness", "Display brightness set to: %d", (int)x);
+  
+  # Current browse index (for debugging)
+  - platform: template
+    name: "Browse Index"
+    id: browse_index
+    optimistic: true
+    min_value: 0
+    max_value: 100
+    step: 1
+    initial_value: 0
+    mode: box
     internal: true  # Hidden from HA UI
 
 # Optional: Expose preset buttons as binary sensors in Home Assistant

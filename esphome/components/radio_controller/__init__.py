@@ -79,6 +79,9 @@ async def to_code(config):
     var = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(var, config)
     
+    # Add ArduinoJson library for playlist JSON parsing
+    cg.add_library("bblanchon/ArduinoJson", "7.2.1")
+    
     # Get references to keypad and display
     keypad = await cg.get_variable(config[CONF_KEYPAD_ID])
     display = await cg.get_variable(config[CONF_DISPLAY_ID])

@@ -45,12 +45,18 @@ void TCA8418Component::loop() {
   uint8_t event_count = this->available_events_();
   
   if (event_count > 0) {
-    // Process all available events
-    for (uint8_t i = 0; i < event_count && i < 10; i++) {  // Limit to 10 events per loop
+    // Process ALL available events in FIFO (up to 10, the FIFO size)
+    // Don't limit to fewer, or we risk losing encoder events during fast rotation
+    for (uint8_t i = 0; i < event_count && i < 10; i++) {
       uint8_t event = 0;
       if (this->read_event_(&event)) {
         this->process_event_(event);
       }
+    }
+    
+    // If FIFO was full (10 events), warn about potential overflow
+    if (event_count >= 10) {
+      ESP_LOGW(TAG, "FIFO was full (%d events) - some events may have been lost!", event_count);
     }
   }
 }
@@ -65,6 +71,12 @@ void TCA8418Component::dump_config() {
   } else {
     ESP_LOGCONFIG(TAG, "  Status: Device detected and ready");
   }
+}
+
+float TCA8418Component::get_loop_priority() const {
+  // High priority to process events quickly (especially for encoders)
+  // Higher number = higher priority
+  return 60.0f;  // Run before most other components
 }
 
 float TCA8418Component::get_setup_priority() const {

@@ -43,6 +43,7 @@ class TCA8418Component : public Component, public i2c::I2CDevice {
   void loop() override;
   void dump_config() override;
   float get_setup_priority() const override;
+  float get_loop_priority() const override;
 
   // Configuration setters (called from Python codegen)
   void set_matrix_size(uint8_t rows, uint8_t columns);

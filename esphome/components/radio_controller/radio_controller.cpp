@@ -2,6 +2,7 @@
 #include "esphome/core/log.h"
 #include "esphome/core/application.h"
 #include "esphome/components/retrotext_display/is31fl3737_driver.h"
+#include <ArduinoJson.h>
 
 namespace esphome {
 namespace radio_controller {
@@ -51,6 +52,17 @@ void RadioController::setup() {
 void RadioController::loop() {
   // Update VU meter backlight slew
   this->update_vu_meter_slew_();
+  
+  // Check for playlist browsing timeout (10 seconds of inactivity)
+  if (this->playlist_mode_active_ && this->playlist_playing_ && 
+      this->last_playlist_interaction_ > 0) {
+    uint32_t elapsed = millis() - this->last_playlist_interaction_;
+    if (elapsed > 10000) {  // 10 second timeout
+      ESP_LOGI(TAG, "Playlist browsing timeout - staying in playing mode");
+      // Just clear the timeout flag, metadata will continue showing
+      this->last_playlist_interaction_ = 0;
+    }
+  }
 }
 
 void RadioController::dump_config() {
@@ -109,6 +121,20 @@ void RadioController::set_encoder_button(uint8_t row, uint8_t column) {
 void RadioController::handle_key_press_(uint8_t row, uint8_t column) {
   ESP_LOGD(TAG, "Key pressed: row=%d, col=%d", row, column);
   
+  // Check if this is an encoder rotation channel (A or B)
+  if (this->has_encoder_button_ && row == this->encoder_row_) {
+    // Encoder channel A (col 2) or B (col 3)
+    if (column == 2) {  // Encoder B
+      this->encoder_b_state_ = true;
+      this->process_encoder_rotation_();
+      return;
+    } else if (column == 3) {  // Encoder A
+      this->encoder_a_state_ = true;
+      this->process_encoder_rotation_();
+      return;
+    }
+  }
+  
   // Check if this is a preset button
   Preset *preset = this->find_preset_(row, column);
   if (preset != nullptr) {
@@ -118,39 +144,27 @@ void RadioController::handle_key_press_(uint8_t row, uint8_t column) {
   
   // Check if this is the encoder button
   if (this->has_encoder_button_ && row == this->encoder_row_ && column == this->encoder_column_) {
-    ESP_LOGI(TAG, "Encoder button pressed - stopping playback");
-    
-    // Update display
-    if (this->display_ != nullptr) {
-      this->display_->set_text("STOPPED");
+    if (this->playlist_mode_active_) {
+      // In playlist mode
+      if (this->playlist_playing_) {
+        // Currently playing - return to playlist list
+        ESP_LOGI(TAG, "Encoder button: returning to playlist list");
+        this->playlist_playing_ = false;
+        this->last_playlist_interaction_ = millis();
+        
+        // Show current playlist in list
+        if (this->display_ != nullptr && !this->playlists_.empty() && 
+            this->playlist_index_ < this->playlists_.size()) {
+          this->display_->set_text(this->playlists_[this->playlist_index_].name.c_str());
+        }
+      } else {
+        // Browsing list - select and play current playlist
+        ESP_LOGI(TAG, "Encoder button: selecting playlist");
+        this->select_current_playlist();
+        // Note: playlist_playing_ is set inside select_current_playlist()
+      }
     }
-    
-    // Clear current preset indicators
-    if (this->preset_text_sensor_ != nullptr) {
-      this->preset_text_sensor_->publish_state("Stopped");
-    }
-    if (this->preset_target_sensor_ != nullptr) {
-      this->preset_target_sensor_->publish_state("");
-    }
-    if (this->preset_select_ != nullptr) {
-      this->preset_select_->publish_state("");
-    }
-    
-    // Update LEDs (turn off mode LED, clear preset LED)
-    this->update_mode_led_(false);
-    if (this->panel_leds_initialized_ && this->led_driver_) {
-      this->led_driver_->clear();
-      this->led_driver_->show();
-    }
-    this->current_preset_index_ = 255;
-    
-    // Fade VU meter back to 10% when stopped
-    this->set_vu_meter_target_brightness(26);  // 10% of 255
-    
-    // Stop media playback
-    std::map<std::string, std::string> service_data;
-    service_data["entity_id"] = "media_player.macstudio_local";
-    this->call_home_assistant_service_("media_player.media_stop", service_data);
+    // In preset mode: encoder button does nothing (removed stop functionality)
     
     return;
   }
@@ -160,8 +174,86 @@ void RadioController::handle_key_press_(uint8_t row, uint8_t column) {
 }
 
 void RadioController::handle_key_release_(uint8_t row, uint8_t column) {
-  // Currently not handling releases, but could add feedback here
+  // Handle encoder channel releases
+  if (this->has_encoder_button_ && row == this->encoder_row_) {
+    if (column == 2) {  // Encoder B
+      this->encoder_b_state_ = false;
+      this->process_encoder_rotation_();
+      return;
+    } else if (column == 3) {  // Encoder A
+      this->encoder_a_state_ = false;
+      this->process_encoder_rotation_();
+      return;
+    }
+  }
+  
   ESP_LOGV(TAG, "Key released: row=%d, col=%d", row, column);
+}
+
+void RadioController::process_encoder_rotation_() {
+  // Single-edge counting mode: Only count rising edges of channel B
+  // This prevents press/release from canceling out when A doesn't fire
+  
+  int8_t current_encoded = (this->encoder_a_state_ ? 0b10 : 0) | (this->encoder_b_state_ ? 0b01 : 0);
+  int8_t last_b_state = this->encoder_last_encoded_ & 0b01;
+  int8_t current_b_state = current_encoded & 0b01;
+  
+  // Only act on RISING edge of channel B (press, not release)
+  if (current_b_state == 1 && last_b_state == 0) {
+    // Direction determined by A state when B rises
+    bool a_state = this->encoder_a_state_;
+    
+    if (!a_state) {
+      this->encoder_count_++;  // Clockwise (A low when B rises)
+      ESP_LOGD(TAG, "Encoder: CW step (A:0 B:1, count:%d)", this->encoder_count_);
+    } else {
+      this->encoder_count_--;  // Counter-clockwise (A high when B rises)
+      ESP_LOGD(TAG, "Encoder: CCW step (A:1 B:1, count:%d)", this->encoder_count_);
+    }
+    
+    // Handle encoder turns in playlist mode
+    if (this->playlist_mode_active_) {
+      // If playing, return to browse mode on any encoder turn
+      if (this->playlist_playing_) {
+        ESP_LOGI(TAG, "Encoder turned while playing - returning to playlist list");
+        this->playlist_playing_ = false;
+        this->last_playlist_interaction_ = millis();
+        
+        // Show current playlist in list
+        if (this->display_ != nullptr && !this->playlists_.empty() && 
+            this->playlist_index_ < this->playlists_.size()) {
+          this->display_->set_text(this->playlists_[this->playlist_index_].name.c_str());
+        }
+      } else {
+        // Browsing - scroll through list
+        int32_t encoder_change = this->encoder_count_ - this->last_encoder_count_;
+        
+        // Scroll on every single step
+        if (encoder_change >= 1) {
+          ESP_LOGI(TAG, "Encoder scroll: NEXT (count: %d, change: %d)", 
+                   this->encoder_count_, encoder_change);
+          this->scroll_playlist(1);
+          this->last_playlist_interaction_ = millis();
+          this->last_encoder_count_ = this->encoder_count_;
+        } else if (encoder_change <= -1) {
+          ESP_LOGI(TAG, "Encoder scroll: PREV (count: %d, change: %d)", 
+                   this->encoder_count_, encoder_change);
+          this->scroll_playlist(-1);
+          this->last_playlist_interaction_ = millis();
+          this->last_encoder_count_ = this->encoder_count_;
+        }
+      }
+    }
+    
+    // Reset count periodically to prevent overflow
+    if (abs(this->encoder_count_) > 1000) {
+      this->encoder_count_ = 0;
+      this->last_encoder_count_ = 0;
+    }
+  }
+  
+  // Update state for next comparison
+  this->encoder_last_encoded_ = current_encoded;
 }
 
 Preset* RadioController::find_preset_(uint8_t row, uint8_t column) {
@@ -199,6 +291,63 @@ void RadioController::activate_preset_(Preset *preset) {
       this->current_preset_index_ = i;
       break;
     }
+  }
+  
+  // Check if this is the special playlist mode trigger
+  if (preset->target == "__PLAYLIST_MODE__") {
+    // If already in playlist mode, exit and stop playback
+    if (this->playlist_mode_active_) {
+      ESP_LOGI(TAG, "Exiting playlist browser mode and stopping playback");
+      this->exit_playlist_mode();
+      this->playlist_playing_ = false;
+      
+      // Stop playback
+      std::map<std::string, std::string> service_data;
+      service_data["entity_id"] = "media_player.macstudio_local";
+      this->call_home_assistant_service_("media_player.media_stop", service_data);
+      
+      // Show "Stopped" briefly
+      if (this->display_ != nullptr) {
+        this->display_->set_text("Stopped");
+      }
+      
+      // Clear LEDs
+      this->update_mode_led_(false);
+      if (this->panel_leds_initialized_ && this->led_driver_) {
+        this->led_driver_->clear();
+        this->led_driver_->show();
+      }
+      this->current_preset_index_ = 255;
+      
+      // Reset VU meter
+      this->set_vu_meter_target_brightness(26);
+      
+      return;
+    }
+    
+    // Entering playlist mode
+    ESP_LOGI(TAG, "Entering playlist browser mode");
+    
+    // Show "Playlists" briefly
+    if (this->display_ != nullptr) {
+      this->display_->set_text("Playlists");
+    }
+    
+    // Update preset LED (preset 8)
+    this->update_preset_led_(preset_index);
+    
+    // Enter playlist mode after 800ms
+    this->set_timeout("enter_playlist_mode", 800, [this]() {
+      this->enter_playlist_mode();
+    });
+    
+    // Don't call any service or publish media_id yet
+    return;
+  }
+  
+  // Exit playlist mode if entering preset mode
+  if (this->playlist_mode_active_) {
+    this->exit_playlist_mode();
   }
   
   // Update display
@@ -478,6 +627,156 @@ void RadioController::update_vu_meter_slew_() {
   
   ESP_LOGV(TAG, "VU meter brightness: %d -> %d", 
            this->vu_meter_current_brightness_, this->vu_meter_target_brightness_);
+}
+
+// Playlist Browsing Methods
+
+void RadioController::load_playlist_data(const std::string &json_data) {
+  ESP_LOGI(TAG, "Loading playlist data: %s", json_data.c_str());
+  
+  // Clear existing playlists
+  this->playlists_.clear();
+  this->playlist_index_ = 0;
+  
+  // Parse JSON using ArduinoJson
+  JsonDocument doc;
+  DeserializationError error = deserializeJson(doc, json_data);
+  
+  if (error) {
+    ESP_LOGE(TAG, "Failed to parse JSON: %s", error.c_str());
+    return;
+  }
+  
+  // Expect array of objects: [{"name": "...", "uri": "..."}, ...]
+  if (doc.is<JsonArray>()) {
+    JsonArray array = doc.as<JsonArray>();
+    
+    for (JsonVariant item : array) {
+      if (item.is<JsonObject>()) {
+        JsonObject obj = item.as<JsonObject>();
+        
+        // Check if both name and uri fields exist
+        if (obj["name"].is<const char*>() && obj["uri"].is<const char*>()) {
+          PlaylistItem playlist;
+          playlist.name = obj["name"].as<std::string>();
+          playlist.uri = obj["uri"].as<std::string>();
+          this->playlists_.push_back(playlist);
+          
+          ESP_LOGD(TAG, "Added playlist: %s", playlist.name.c_str());
+        }
+      }
+    }
+  }
+  
+  ESP_LOGI(TAG, "Loaded %d playlists", this->playlists_.size());
+  
+  // If in playlist mode and we have playlists, show first one
+  if (this->playlist_mode_active_ && !this->playlists_.empty()) {
+    if (this->display_ != nullptr) {
+      this->display_->set_text(this->playlists_[0].name.c_str());
+    }
+  } else if (this->playlist_mode_active_ && this->playlists_.empty()) {
+    if (this->display_ != nullptr) {
+      this->display_->set_text("NO PLAYLISTS");
+    }
+  }
+}
+
+void RadioController::enter_playlist_mode() {
+  ESP_LOGI(TAG, "Entering playlist mode");
+  
+  this->playlist_mode_active_ = true;
+  this->playlist_index_ = 0;
+  
+  // Update radio mode sensor
+  if (this->radio_mode_sensor_ != nullptr) {
+    this->radio_mode_sensor_->publish_state("playlists");
+  }
+  
+  // Show initial message
+  if (this->display_ != nullptr) {
+    if (!this->playlists_.empty()) {
+      this->display_->set_text(this->playlists_[0].name.c_str());
+    } else {
+      this->display_->set_text("LOADING...");
+    }
+  }
+  
+  // LED already handled by preset activation (preset 8)
+}
+
+void RadioController::exit_playlist_mode() {
+  ESP_LOGI(TAG, "Exiting playlist mode");
+  
+  this->playlist_mode_active_ = false;
+  
+  // Update radio mode sensor
+  if (this->radio_mode_sensor_ != nullptr) {
+    this->radio_mode_sensor_->publish_state("presets");
+  }
+}
+
+void RadioController::scroll_playlist(int direction) {
+  if (!this->playlist_mode_active_ || this->playlists_.empty()) {
+    return;
+  }
+  
+  // Update index with wrapping
+  if (direction > 0) {
+    this->playlist_index_ = (this->playlist_index_ + 1) % this->playlists_.size();
+  } else if (direction < 0) {
+    if (this->playlist_index_ == 0) {
+      this->playlist_index_ = this->playlists_.size() - 1;
+    } else {
+      this->playlist_index_--;
+    }
+  }
+  
+  // Update display
+  if (this->display_ != nullptr && this->playlist_index_ < this->playlists_.size()) {
+    const auto &playlist = this->playlists_[this->playlist_index_];
+    this->display_->set_text(playlist.name.c_str());
+    ESP_LOGI(TAG, "Scrolled to playlist %d/%d: %s", 
+             this->playlist_index_ + 1, this->playlists_.size(), playlist.name.c_str());
+  }
+}
+
+void RadioController::select_current_playlist() {
+  if (!this->playlist_mode_active_ || this->playlists_.empty() || 
+      this->playlist_index_ >= this->playlists_.size()) {
+    ESP_LOGW(TAG, "Cannot select playlist: mode=%d, count=%d, index=%d",
+             this->playlist_mode_active_, this->playlists_.size(), this->playlist_index_);
+    return;
+  }
+  
+  const auto &playlist = this->playlists_[this->playlist_index_];
+  ESP_LOGI(TAG, "Selected playlist: %s (URI: %s)", playlist.name.c_str(), playlist.uri.c_str());
+  
+  // Mark as playing FIRST so display updates work correctly
+  this->playlist_playing_ = true;
+  this->last_playlist_interaction_ = millis();
+  
+  // Clear display and show loading state
+  if (this->display_ != nullptr) {
+    this->display_->set_text("LOADING...");
+  }
+  
+  // Publish the playlist URI as current media ID
+  // This will trigger the Home Assistant automation to start playback
+  if (this->preset_target_sensor_ != nullptr) {
+    this->preset_target_sensor_->publish_state(playlist.uri);
+  }
+  
+  // Update preset text sensor with playlist name
+  if (this->preset_text_sensor_ != nullptr) {
+    this->preset_text_sensor_->publish_state(playlist.name);
+  }
+  
+  // Set VU meter to playing level
+  this->set_vu_meter_target_brightness(204);  // 80% of 255
+  
+  // Stay in playlist mode, marked as playing
+  // User can press encoder to return to list, or playlist button to exit
 }
 
 }  // namespace radio_controller
