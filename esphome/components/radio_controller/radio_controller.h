@@ -36,6 +36,17 @@ struct Preset {
   std::map<std::string, std::string> data;  // Additional service data
 };
 
+// New unified browse item structure
+struct BrowseItem {
+  enum Type { PRESET, PLAYLIST };
+  Type type;
+  std::string name;          // Display name
+  std::string target;        // Media ID / URI
+  int preset_index;          // -1 if not a preset, 0-7 for presets
+  uint8_t row;              // For presets, original button position
+  uint8_t column;
+};
+
 class RadioController : public Component {
  public:
   void setup() override;
@@ -63,18 +74,30 @@ class RadioController : public Component {
   void sync_preset_led_from_name(const std::string &preset_name);
   void sync_preset_led_from_target(const std::string &target);
   
+  // Metadata and playback state
+  void set_now_playing_metadata(const std::string &metadata);
+  void set_playback_state(bool playing);
+  
   // Playlist browsing
   void load_playlist_data(const std::string &json_data);
-  void enter_playlist_mode();
-  void exit_playlist_mode();
-  void scroll_playlist(int direction);  // +1 next, -1 previous
-  void select_current_playlist();
-  bool is_playlist_playing() const { return this->playlist_playing_; }
+  
+  // Accessors for state (for YAML lambdas)
+  bool is_browse_mode_active() const { return browse_mode_active_; }
   
   // Set text sensor references for mode and index
   void set_radio_mode_sensor(text_sensor::TextSensor *sensor) { this->radio_mode_sensor_ = sensor; }
   
  protected:
+  // New browse management methods
+  void build_browse_list_();
+  void enter_browse_mode_();
+  void exit_browse_mode_();
+  void scroll_browse_(int direction);
+  void select_current_browse_item_();
+  void play_browse_item_(size_t index);
+  void toggle_play_stop_();
+  void update_leds_for_browse_();
+  
   void handle_key_press_(uint8_t row, uint8_t column);
   void handle_key_release_(uint8_t row, uint8_t column);
   void process_encoder_rotation_();
@@ -90,6 +113,9 @@ class RadioController : public Component {
   void set_vu_meter_target_brightness(uint8_t target);
   void update_vu_meter_slew_();
   
+  // Display formatting with playback icons
+  std::string format_display_text_(const std::string &text, bool show_icon = true);
+  
   tca8418_keypad::TCA8418Component *keypad_{nullptr};
   retrotext_display::RetroTextDisplay *display_{nullptr};
   i2c::I2CBus *i2c_bus_{nullptr};
@@ -103,12 +129,11 @@ class RadioController : public Component {
   std::string current_preset_name_;
   uint8_t current_preset_index_{255};  // 255 = none
   
-  // Playlist browsing state
+  // Playlist data (used to build browse list)
   struct PlaylistItem {
     std::string name;
     std::string uri;
   };
-  bool playlist_mode_active_{false};
   std::vector<PlaylistItem> playlists_;
   size_t playlist_index_{0};
   
@@ -126,17 +151,24 @@ class RadioController : public Component {
   uint8_t encoder_row_{0};
   uint8_t encoder_column_{0};
   
-  // Encoder rotation tracking (simple edge counting)
+  // Encoder rotation tracking (full quadrature with detent tracking)
   bool encoder_a_state_{false};
   bool encoder_b_state_{false};
-  int8_t encoder_last_encoded_{0};
-  int32_t encoder_count_{0};         // Running count (like ESP32Encoder getCount())
+  uint8_t encoder_last_encoded_{0};
+  int8_t encoder_detent_count_{0};   // Steps within current detent (0-2 for this hardware)
+  int32_t encoder_count_{0};         // Completed detents count
   int32_t last_encoder_count_{0};    // Last processed count
   
-  // Playlist mode state
-  bool playlist_playing_{false};  // Currently playing a selected playlist
-  uint32_t last_playlist_interaction_{0};  // For timeout
+  // Unified browse state
+  std::vector<BrowseItem> browse_items_;      // Unified list of presets + playlists
+  size_t browse_index_{0};                    // Current selection in browse mode
+  bool browse_mode_active_{false};            // Is menu visible?
+  uint32_t last_browse_interaction_{0};       // For 10s timeout
+  int currently_playing_index_{-1};           // Index in browse_items_ of what's playing (-1 = none)
+  bool is_playing_{false};                    // Play/stop state
+  std::string now_playing_metadata_;          // Latest metadata from HA
 };
+
 
 }  // namespace radio_controller
 }  // namespace esphome

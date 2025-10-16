@@ -12,4 +12,6 @@ We will use markdown documentation to work out complex ideas or refactorings. Ho
 
 Ensure documentation is always as concise and accurate as possible. Documentation must be factual and helpful, not promotional or overly verbose. 
 
+Don't create new markdown files to summarize completed work, just update the existing plan and write the summary in the response to the user. We want to avoid bloating the repository with unnecessary files.
+
 We use platformio and esphome to build and test firmware. Run the build and test commands whenever needed. However do not attempt to upload firmware or run the serial monitor directly, ask the user to do this.

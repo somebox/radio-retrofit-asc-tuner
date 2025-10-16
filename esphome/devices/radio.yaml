@@ -14,7 +14,7 @@ esphome:
           id(controller).set_radio_mode_sensor(id(radio_mode));
           id(radio_mode).publish_state("presets");
 
-# Global variables for clock mode
+# Global variables for clock mode and state
 globals:
   - id: stopped_time
     type: unsigned long
@@ -28,6 +28,10 @@ globals:
     type: uint8_t
     restore_value: no
     initial_value: '180'
+  - id: last_preset_name
+    type: std::string
+    restore_value: yes
+    initial_value: '""'
 
 # Intervals for animations and clock
 interval:
@@ -38,23 +42,29 @@ interval:
           static int spinner_pos = 0;
           static const char spinner_chars[] = "/-\\|";
           
-          // Only show spinner if loading AND not browsing playlists
-          bool is_browsing = (id(radio_mode).state == "playlists" && 
-                             !id(controller).is_playlist_playing());
-          
-          if (id(stream_state).state == "loading" && !is_browsing) {
+          // Only show spinner if loading
+          if (id(stream_state).state == "loading") {
             // Show station name + spinner while connecting
             std::string station = id(station_name).state;
             if (station.empty()) {
               station = "Connecting";
             }
             
-            // Build display with spinner always in last column (position 17, 0-indexed)
-            // Truncate or pad station name to 17 chars, then add spinner
-            if (station.length() > 17) {
-              station = station.substr(0, 17);
+            // Add play icon (glyph 128) at the start
+            std::string display_text;
+            display_text += (char)128;  // Play icon
+            display_text += ' ';  // Space after icon
+            
+            // Truncate station name to fit (18 chars total - 2 for icon/space - 1 for spinner = 15 chars max)
+            if (station.length() > 15) {
+              station = station.substr(0, 15);
             }
-            std::string display_text = station + std::string(17 - station.length(), ' ') + spinner_chars[spinner_pos];
+            display_text += station;
+            
+            // Pad and add spinner at the end
+            display_text += std::string(15 - station.length(), ' ');
+            display_text += spinner_chars[spinner_pos];
+            
             id(display).set_text(display_text.c_str());
             spinner_pos = (spinner_pos + 1) % 4;
           }
@@ -70,8 +80,17 @@ interval:
                                  id(stream_state).state == "ready");
           bool no_media = id(current_media_id).state.empty();
           bool truly_stopped = (stream_stopped || no_media) && !in_playlist_mode;
+          bool user_browsing = id(controller).is_browse_mode_active();
           
-          if (truly_stopped) {
+          // Reset clock timer if user is browsing
+          if (user_browsing && id(clock_mode_active)) {
+            ESP_LOGI("clock", "Exiting clock mode due to user browsing");
+            id(clock_mode_active) = false;
+            id(display).set_brightness(id(normal_brightness));
+            id(stopped_time) = 0;  // Reset timer
+          }
+          
+          if (truly_stopped && !user_browsing) {
             // Initialize stopped_time if this is the first check
             if (id(stopped_time) == 0) {
               id(stopped_time) = millis();
@@ -155,16 +174,17 @@ wifi:
   ap:
     ssid: "Retro Radio Fallback"
   
-  # Show connection status on display briefly, then let normal operation take over
+  # Show connection status briefly, then auto-play last preset
   on_connect:
-    - lambda: 'id(display).set_text("CONNECTED");'
-    - delay: 2s
+    - delay: 500ms
     - lambda: |-
-        // Clear to "Ready" if nothing is playing
-        if (id(now_playing).state.empty() || id(now_playing).state == "unknown") {
-          id(display).set_text("Ready");
+        // Auto-play last preset if available
+        if (!id(last_preset_name).empty()) {
+          ESP_LOGI("boot", "Auto-playing last preset: %s", id(last_preset_name).c_str());
+          id(controller).select_preset_by_name(id(last_preset_name));
         } else {
-          id(display).set_text(id(now_playing).state.c_str());
+          ESP_LOGI("boot", "No last preset, showing stopped");
+          id(stream_state).publish_state("stopped");
         }
   
   on_disconnect:
@@ -245,6 +265,15 @@ radio_controller:
   controls:
     encoder_button: {row: 2, column: 1}
 
+# Binary sensors (required for tca8418_keypad component to compile)
+binary_sensor:
+  # Minimal internal sensor to satisfy component dependencies
+  # We use callbacks in radio_controller instead of binary sensors
+  - platform: template
+    name: "Keypad Active"
+    id: keypad_active
+    internal: true
+
 # Text sensors
 text_sensor:
   # Current preset name (display text)
@@ -257,6 +286,12 @@ text_sensor:
       then:
         # Store station name for use during loading
         - lambda: 'id(station_name).publish_state(x);'
+        # Save as last preset for auto-play on boot
+        - lambda: |-
+            if (!x.empty() && x != "BROWSE PLAYLISTS") {
+              id(last_preset_name) = x;
+              ESP_LOGI("preset", "Saved last preset: %s", x.c_str());
+            }
   
   # Current preset target (media_id for automation)
   - platform: template
@@ -280,6 +315,16 @@ text_sensor:
         - lambda: |-
             ESP_LOGI("now_playing", "Received: %s", x.c_str());
             
+            // NEW: Update radio controller with metadata
+            id(controller).set_now_playing_metadata(x);
+            
+            // If we receive now_playing and stream_state is still loading, update it to playing
+            // This fixes the spinner not clearing issue
+            if (id(stream_state).state == "loading" && !x.empty()) {
+              ESP_LOGI("now_playing", "Fixing stuck loading state - updating to playing");
+              id(stream_state).publish_state("playing");
+            }
+            
             // Exit clock mode if we have valid media
             if (!id(current_media_id).state.empty()) {
               if (id(clock_mode_active)) {
@@ -291,17 +336,6 @@ text_sensor:
               // Sync LED using the stored media_id (always use this, not now_playing text)
               ESP_LOGI("now_playing", "Syncing LED with media_id: %s", id(current_media_id).state.c_str());
               id(controller).sync_preset_led_from_target(id(current_media_id).state);
-            }
-        # Delay to allow preset name to show first
-        - delay: 1.5s
-        # Only update display when not loading or browsing playlists
-        - lambda: |-
-            // Don't overwrite display if browsing playlists
-            bool is_browsing = (id(radio_mode).state == "playlists" && 
-                               !id(controller).is_playlist_playing());
-            
-            if (id(stream_state).state != "loading" && !is_browsing) {
-              id(display).set_text(x.c_str());
             }
 
 # Select for preset selection
@@ -324,20 +358,23 @@ text:
         - lambda: |-
             ESP_LOGI("stream_state", "Stream state changed to: %s", x.c_str());
             
-            // Don't show "STOPPED" if in playlist mode at all
-            // (either browsing or just started playing)
-            bool in_playlist_mode = (id(radio_mode).state == "playlists");
-            
-            if (x == "stopped" && !in_playlist_mode) {
-              id(display).set_text("STOPPED");
+            // Update radio controller with playback state
+            if (x == "playing") {
+              id(controller).set_playback_state(true);
+            } else if (x == "stopped") {
+              id(controller).set_playback_state(false);
+              // Controller will handle display with stop icon
+              
               // Reset stopped timer to start counting for clock mode
               id(stopped_time) = 0;
               
               // Clear media_id when stopped so clock mode can activate
               id(current_media_id).publish_state("");
+            } else if (x == "ready") {
+              // On boot with "ready" state, show stopped state properly
+              id(controller).set_playback_state(false);
             }
             // "loading" state will show station name + spinner in interval
-            // "playing" state will be overridden by now_playing sensor
   
   - platform: template
     name: "Station Name"
@@ -372,70 +409,3 @@ number:
             id(normal_brightness) = (uint8_t)x;
             ESP_LOGI("brightness", "Display brightness set to: %d", (int)x);
   
-  # Current browse index (for debugging)
-  - platform: template
-    name: "Browse Index"
-    id: browse_index
-    optimistic: true
-    min_value: 0
-    max_value: 100
-    step: 1
-    initial_value: 0
-    mode: box
-    internal: true  # Hidden from HA UI
-
-# Optional: Expose preset buttons as binary sensors in Home Assistant
-binary_sensor:
-  - platform: tca8418_keypad
-    tca8418_keypad_id: keypad
-    name: "Preset Button 1"
-    row: 3
-    column: 3
-  
-  - platform: tca8418_keypad
-    tca8418_keypad_id: keypad
-    name: "Preset Button 2"
-    row: 3
-    column: 2
-  
-  - platform: tca8418_keypad
-    tca8418_keypad_id: keypad
-    name: "Preset Button 3"
-    row: 3
-    column: 1
-  
-  - platform: tca8418_keypad
-    tca8418_keypad_id: keypad
-    name: "Preset Button 4"
-    row: 3
-    column: 0
-  
-  - platform: tca8418_keypad
-    tca8418_keypad_id: keypad
-    name: "Preset Button 5"
-    row: 3
-    column: 8
-  
-  - platform: tca8418_keypad
-    tca8418_keypad_id: keypad
-    name: "Preset Button 6"
-    row: 3
-    column: 7
-  
-  - platform: tca8418_keypad
-    tca8418_keypad_id: keypad
-    name: "Preset Button 7"
-    row: 3
-    column: 6
-  
-  - platform: tca8418_keypad
-    tca8418_keypad_id: keypad
-    name: "Preset Button 8"
-    row: 3
-    column: 5
-  
-  - platform: tca8418_keypad
-    tca8418_keypad_id: keypad
-    name: "Encoder Button"
-    row: 2
-    column: 1

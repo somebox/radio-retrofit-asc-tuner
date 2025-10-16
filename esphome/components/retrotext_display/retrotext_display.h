@@ -70,14 +70,15 @@ class RetroTextDisplay : public Component {
   uint32_t last_scroll_time_{0};
   int scroll_position_{0};
   size_t text_length_{0};
+  uint8_t stationary_prefix_chars_{0};  // Number of chars at start that don't scroll
   
   // Internal methods
   bool initialize_boards_();
   void render_text_();
   void update_display_();
   void set_pixel_(int x, int y, uint8_t brightness);
-  void draw_character_(uint8_t ascii_char, int x_offset, uint8_t brightness);
-  uint8_t get_glyph_row_(uint8_t ascii_char, int row) const;
+  void draw_character_(uint8_t glyph_index, int x_offset, uint8_t brightness);
+  uint8_t get_glyph_row_(uint8_t glyph_index, int row) const;
   
   // Coordinate helpers
   int get_board_for_x_(int x) const;

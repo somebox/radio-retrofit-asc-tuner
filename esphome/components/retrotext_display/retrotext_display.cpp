@@ -122,6 +122,16 @@ void RetroTextDisplay::set_text(const char *text) {
   // Calculate actual text length
   this->text_length_ = strlen(this->text_buffer_);
   
+  // Detect stationary prefix (icon + space = 2 chars)
+  // Check if text starts with play (128) or stop (129) icon
+  this->stationary_prefix_chars_ = 0;
+  if (this->text_length_ >= 2) {
+    uint8_t first_byte = (uint8_t)this->text_buffer_[0];
+    if ((first_byte == 128 || first_byte == 129) && this->text_buffer_[1] == ' ') {
+      this->stationary_prefix_chars_ = 2;  // Icon + space stay put
+    }
+  }
+  
   // Reset scroll position and timing when text changes
   this->scroll_position_ = 0;
   uint32_t now = millis();
@@ -130,7 +140,7 @@ void RetroTextDisplay::set_text(const char *text) {
   
   this->text_dirty_ = true;
   
-  ESP_LOGD(TAG, "Set text: '%s'", this->text_buffer_);
+  ESP_LOGD(TAG, "Set text: '%s' (prefix_chars=%d)", this->text_buffer_, this->stationary_prefix_chars_);
 }
 
 void RetroTextDisplay::set_text_with_brightness(const char *text, uint8_t date_brightness, uint8_t time_brightness, int split_pos) {
@@ -147,12 +157,21 @@ void RetroTextDisplay::set_text_with_brightness(const char *text, uint8_t date_b
   this->text_buffer_[MAX_TEXT_LENGTH - 1] = '\0';
   this->text_length_ = strlen(this->text_buffer_);
   
-  // Render with variable brightness
+  // Render with variable brightness and UTF-8 support
   int x_pos = 0;
-  for (size_t i = 0; i < this->text_length_ && i < 18; i++) {
-    uint8_t char_brightness = (i < split_pos) ? date_brightness : time_brightness;
-    this->draw_character_(this->text_buffer_[i], x_pos, char_brightness);
+  size_t byte_pos = 0;
+  int char_count = 0;
+  
+  while (byte_pos < this->text_length_ && char_count < 18) {
+    size_t bytes_consumed = 0;
+    uint8_t glyph = map_utf8_to_glyph(&this->text_buffer_[byte_pos], bytes_consumed);
+    
+    uint8_t char_brightness = (char_count < split_pos) ? date_brightness : time_brightness;
+    this->draw_character_(glyph, x_pos, char_brightness);
     x_pos += 4;
+    
+    byte_pos += bytes_consumed;
+    char_count++;
   }
   
   // Update display immediately (bypass normal render cycle)
@@ -164,7 +183,7 @@ void RetroTextDisplay::set_text_with_brightness(const char *text, uint8_t date_b
   this->text_set_time_ = now;
   this->last_scroll_time_ = now;
   
-  ESP_LOGD(TAG, "Set text with brightness: '%s' (date:%d, time:%d, split:%d)", 
+  ESP_LOGV(TAG, "Set text with brightness: '%s' (date:%d, time:%d, split:%d)", 
            this->text_buffer_, date_brightness, time_brightness, split_pos);
 }
 
@@ -220,45 +239,70 @@ void RetroTextDisplay::render_text_() {
   // Clear buffer
   this->buffer_.fill(0);
   
-  // Check if we should scroll
+  // Check if we should scroll (accounting for stationary prefix)
+  size_t scrollable_length = this->text_length_ - this->stationary_prefix_chars_;
+  size_t available_display_chars = 18 - this->stationary_prefix_chars_;
+  
   bool should_scroll = false;
-  if (this->scroll_mode_ == SCROLL_ALWAYS) {
+  if (this->scroll_mode_ == SCROLL_ALWAYS && scrollable_length > 0) {
     should_scroll = true;
-  } else if (this->scroll_mode_ == SCROLL_AUTO && this->text_length_ > 18) {
+  } else if (this->scroll_mode_ == SCROLL_AUTO && scrollable_length > available_display_chars) {
     should_scroll = true;
   }
   
   int x_pos = 0;
   
-  if (should_scroll) {
-    // Render 18 characters starting from scroll_position_ with wraparound
-    // Text wraps with " * " separator (3 chars total)
-    for (int display_pos = 0; display_pos < 18; display_pos++) {
-      // Calculate source position in text buffer (with wraparound)
-      int text_pos = (this->scroll_position_ + display_pos) % (this->text_length_ + 3);
+  // FIRST: Render stationary prefix (icon + space) if present
+  if (this->stationary_prefix_chars_ > 0) {
+    for (uint8_t i = 0; i < this->stationary_prefix_chars_ && i < this->text_length_; i++) {
+      size_t bytes_consumed = 0;
+      uint8_t glyph = map_utf8_to_glyph(&this->text_buffer_[i], bytes_consumed);
+      this->draw_character_(glyph, x_pos, this->brightness_);
+      x_pos += 4;
+    }
+  }
+  
+  // SECOND: Render scrollable portion
+  if (should_scroll && scrollable_length > 0) {
+    // Scrolling text - render after the prefix
+    // Scrollable text starts at stationary_prefix_chars_ offset in buffer
+    for (size_t display_pos = 0; display_pos < available_display_chars; display_pos++) {
+      // Calculate position in scrollable portion (with wraparound)
+      int text_pos = (this->scroll_position_ + display_pos) % (scrollable_length + 3);
       
-      char ch;
-      if (text_pos < (int)this->text_length_) {
-        // Character from actual text
-        ch = this->text_buffer_[text_pos];
+      uint8_t glyph;
+      if (text_pos < (int)scrollable_length) {
+        // Character from scrollable text
+        size_t bytes_consumed = 0;
+        size_t buffer_pos = this->stationary_prefix_chars_ + text_pos;
+        glyph = map_utf8_to_glyph(&this->text_buffer_[buffer_pos], bytes_consumed);
       } else {
-        // Separator between scroll cycles: " * " (3 chars)
-        int separator_pos = text_pos - this->text_length_;
+        // Separator between scroll cycles: " * "
+        int separator_pos = text_pos - scrollable_length;
         if (separator_pos == 0 || separator_pos == 2) {
-          ch = ' ';  // Space before and after asterisk
+          glyph = ' ';
         } else {
-          ch = '*';  // Asterisk in the middle
+          glyph = '*';
         }
       }
       
-      this->draw_character_(ch, x_pos, this->brightness_);
-      x_pos += 4;  // 4 pixels per character width
+      this->draw_character_(glyph, x_pos, this->brightness_);
+      x_pos += 4;
     }
   } else {
-    // Static display - no scrolling, just render the text as-is
-    for (size_t i = 0; i < this->text_length_ && i < 18; i++) {
-      this->draw_character_(this->text_buffer_[i], x_pos, this->brightness_);
-      x_pos += 4;  // 4 pixels per character width
+    // Static display - no scrolling, render remaining chars after prefix
+    size_t byte_pos = this->stationary_prefix_chars_;
+    int char_count = this->stationary_prefix_chars_;
+    
+    while (byte_pos < this->text_length_ && char_count < 18) {
+      size_t bytes_consumed = 0;
+      uint8_t glyph = map_utf8_to_glyph(&this->text_buffer_[byte_pos], bytes_consumed);
+      
+      this->draw_character_(glyph, x_pos, this->brightness_);
+      x_pos += 4;
+      
+      byte_pos += bytes_consumed;
+      char_count++;
     }
   }
 }
@@ -349,11 +393,11 @@ int RetroTextDisplay::get_local_x_(int x) const {
   return x % 24;  // Local x within the board
 }
 
-void RetroTextDisplay::draw_character_(uint8_t ascii_char, int x_offset, uint8_t brightness) {
+void RetroTextDisplay::draw_character_(uint8_t glyph_index, int x_offset, uint8_t brightness) {
   // Draw a 4×6 character starting at x_offset
-  // Character positioning logic from DisplayManager.cpp line 215
+  // Glyph index should be pre-mapped using map_utf8_to_glyph()
   for (int row = 0; row < 6; row++) {
-    uint8_t glyph_row = this->get_glyph_row_(ascii_char, row);
+    uint8_t glyph_row = this->get_glyph_row_(glyph_index, row);
     
     // Draw 4 pixels for this row with bit reversal
     for (int col = 0; col < 4; col++) {
@@ -369,7 +413,7 @@ void RetroTextDisplay::draw_character_(uint8_t ascii_char, int x_offset, uint8_t
   }
 }
 
-uint8_t RetroTextDisplay::get_glyph_row_(uint8_t ascii_char, int row) const {
+uint8_t RetroTextDisplay::get_glyph_row_(uint8_t glyph_index, int row) const {
   // Font format: [width, height, first_char, ...glyph_data...]
   // modern_font4x6[0] = 4 (width)
   // modern_font4x6[1] = 6 (height)
@@ -380,14 +424,24 @@ uint8_t RetroTextDisplay::get_glyph_row_(uint8_t ascii_char, int row) const {
     return 0x00;
   }
   
-  // Check if character is in font range (ASCII 32-126)
-  if (ascii_char < 32 || ascii_char > 126) {
+  // Check if character is in font range
+  // Range: 32-126 (standard ASCII) + 128-159 (extended)
+  if (glyph_index < 32 || (glyph_index > 126 && glyph_index < 128) || glyph_index > 159) {
     return 0x00;  // Return blank for unsupported characters
   }
   
   // Calculate offset in font array
   // Header is 3 bytes, then 6 bytes per character
-  uint8_t char_index = ascii_char - 32;  // Offset from first char (space)
+  uint8_t char_index;
+  if (glyph_index <= 126) {
+    // Standard ASCII range (32-126)
+    char_index = glyph_index - 32;  // Offset from first char (space)
+  } else {
+    // Extended range (128-159)
+    // After ASCII 32-126 (95 chars), we have 127 (1 char), then 128+ (extended)
+    char_index = 95 + (glyph_index - 127);  // 95 ASCII chars, then extended
+  }
+  
   uint16_t glyph_offset = 3 + (char_index * 6) + row;
   
   // Return the row data

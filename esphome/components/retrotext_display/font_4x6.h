@@ -681,7 +681,423 @@ static const uint8_t modern_font4x6[] = {
 0b00000000,
 0b00000000,
 0b00000000,
+// 127 - (unused)
+0b00000000,
+0b00000000,
+0b00000000,
+0b00000000,
+0b00000000,
+0b00000000,
+// === EXTENDED CHARACTER SET (128-159) ===
+// Media control icons
+// 128 - [▶] Play icon
+0b01000000,
+0b01100000,
+0b01110000,
+0b01110000,
+0b01100000,
+0b01000000,
+// 129 - [⏹] Stop icon
+0b00000000,
+0b11110000,
+0b11110000,
+0b11110000,
+0b11110000,
+0b00000000,
+// 130 - [⏸] Pause icon
+0b00000000,
+0b11011000,
+0b11011000,
+0b11011000,
+0b11011000,
+0b00000000,
+// 131 - [⏭] Next/Skip icon
+0b10100000,
+0b11100000,
+0b11110000,
+0b11110000,
+0b11100000,
+0b10100000,
+// 132 - [⏮] Previous icon
+0b01010000,
+0b01110000,
+0b11110000,
+0b11110000,
+0b01110000,
+0b01010000,
+// 133 - [🔀] Shuffle icon (crossed arrows)
+0b10010000,
+0b01100000,
+0b00110000,
+0b01100000,
+0b10010000,
+0b00000000,
+// 134 - [🔁] Repeat icon (circular arrow)
+0b01100000,
+0b10010000,
+0b00010000,
+0b10000000,
+0b10010000,
+0b01100000,
+// 135 - [♥] Heart icon
+0b00000000,
+0b01010000,
+0b11110000,
+0b11110000,
+0b01100000,
+0b00000000,
+// 136 - [♪] Music note
+0b00100000,
+0b00100000,
+0b00100000,
+0b01110000,
+0b11100000,
+0b01100000,
+// 137 - [📻] Radio/Antenna icon
+0b01000000,
+0b10100000,
+0b01000000,
+0b11110000,
+0b10010000,
+0b11110000,
+// 138 - [⏺] Record icon (filled circle)
+0b00000000,
+0b01100000,
+0b11110000,
+0b11110000,
+0b01100000,
+0b00000000,
+// 139 - [↻] Refresh/Reload icon
+0b01100000,
+0b10000000,
+0b11100000,
+0b00010000,
+0b01100000,
+0b00000000,
+// Lowercase accented characters (compact variants)
+// 140 - [á/à/â/ã/ä/å] - a with dot above
+0b01000000,
+0b01100000,
+0b00010000,
+0b01110000,
+0b10010000,
+0b01110000,
+// 141 - [é/è/ê/ë] - e with dot above
+0b01000000,
+0b01100000,
+0b10010000,
+0b11110000,
+0b10000000,
+0b01110000,
+// 142 - [í/ì/î/ï] - i with emphasis (already has dot, make taller)
+0b01000000,
+0b00000000,
+0b01100000,
+0b00100000,
+0b00100000,
+0b01110000,
+// 143 - [ó/ò/ô/õ/ö] - o with dot above
+0b01000000,
+0b01100000,
+0b10010000,
+0b10010000,
+0b10010000,
+0b01100000,
+// 144 - [ú/ù/û/ü] - u with dot above
+0b01000000,
+0b10010000,
+0b10010000,
+0b10010000,
+0b10010000,
+0b01100000,
+// 145 - [ñ] - n with tilde
+0b01010000,
+0b10100000,
+0b11010000,
+0b10010000,
+0b10010000,
+0b10010000,
+// 146 - [ç] - c with cedilla
+0b00000000,
+0b01100000,
+0b10010000,
+0b10000000,
+0b10010000,
+0b01100000,
+0b01000000,  // Note: 7 rows for descender
+// 147 - [ÿ] - y with dots
+0b01010000,
+0b10010000,
+0b10010000,
+0b01110000,
+0b00010000,
+0b11100000,
+// 148 - [ø] - o with slash
+0b00000000,
+0b01100000,
+0b10110000,
+0b11010000,
+0b10010000,
+0b01100000,
+// 149 - [æ] - ae ligature
+0b00000000,
+0b01110000,
+0b10010000,
+0b11110000,
+0b10000000,
+0b01110000,
+// 150 - [œ] - oe ligature
+0b00000000,
+0b01110000,
+0b10110000,
+0b11110000,
+0b10100000,
+0b01110000,
+// 151 - [ß] - German sharp s
+0b01100000,
+0b10010000,
+0b10100000,
+0b10010000,
+0b10010000,
+0b10100000,
+// 152 - [¿] - Inverted question mark
+0b00100000,
+0b00000000,
+0b00100000,
+0b01000000,
+0b10010000,
+0b01100000,
+// 153 - [¡] - Inverted exclamation
+0b01000000,
+0b00000000,
+0b01000000,
+0b01000000,
+0b01000000,
+0b01000000,
+// 154 - [°] - Degree symbol
+0b01100000,
+0b10010000,
+0b01100000,
+0b00000000,
+0b00000000,
+0b00000000,
+// 155-159 - Reserved for future use
+0b00000000,
+0b00000000,
+0b00000000,
+0b00000000,
+0b00000000,
+0b00000000,
+0b00000000,
+0b00000000,
+0b00000000,
+0b00000000,
+0b00000000,
+0b00000000,
+0b00000000,
+0b00000000,
+0b00000000,
+0b00000000,
+0b00000000,
+0b00000000,
+0b00000000,
+0b00000000,
+0b00000000,
+0b00000000,
+0b00000000,
+0b00000000,
+0b00000000,
+0b00000000,
+0b00000000,
+0b00000000,
+0b00000000,
+0b00000000,
 };
+
+/**
+ * UTF-8 Character Mapper
+ * Maps UTF-8 characters to our extended glyph set
+ * Returns glyph index (0-159) or 0 for unsupported characters
+ */
+inline uint8_t map_utf8_to_glyph(const char* str, size_t& bytes_consumed) {
+  bytes_consumed = 1;
+  uint8_t c = (uint8_t)str[0];
+  
+  // ASCII range (0-127) - direct mapping
+  if (c < 128) {
+    return c;
+  }
+  
+  // Extended ASCII range (128-159) - direct mapping to custom glyphs
+  // These are our custom media icons and international characters
+  if (c >= 128 && c <= 159) {
+    return c;
+  }
+  
+  // UTF-8 multi-byte sequences
+  // Format: 110xxxxx 10xxxxxx (2 bytes) or 1110xxxx 10xxxxxx 10xxxxxx (3 bytes)
+  
+  // 2-byte UTF-8 sequence
+  if ((c & 0xE0) == 0xC0 && str[1] != '\0') {
+    bytes_consumed = 2;
+    uint16_t codepoint = ((c & 0x1F) << 6) | ((uint8_t)str[1] & 0x3F);
+    
+    // Latin-1 Supplement and Latin Extended-A (U+0080 to U+017F)
+    switch (codepoint) {
+      // Lowercase a variants → 140 (a with dot)
+      case 0x00E0: // à
+      case 0x00E1: // á
+      case 0x00E2: // â
+      case 0x00E3: // ã
+      case 0x00E4: // ä
+      case 0x00E5: // å
+      case 0x0101: // ā
+      case 0x0103: // ă
+      case 0x0105: // ą
+        return 140;
+      
+      // Lowercase e variants → 141 (e with dot)
+      case 0x00E8: // è
+      case 0x00E9: // é
+      case 0x00EA: // ê
+      case 0x00EB: // ë
+      case 0x0113: // ē
+      case 0x0115: // ĕ
+      case 0x0117: // ė
+      case 0x0119: // ę
+      case 0x011B: // ě
+        return 141;
+      
+      // Lowercase i variants → 142 (i with emphasis)
+      case 0x00EC: // ì
+      case 0x00ED: // í
+      case 0x00EE: // î
+      case 0x00EF: // ï
+      case 0x0129: // ĩ
+      case 0x012B: // ī
+      case 0x012D: // ĭ
+      case 0x012F: // į
+      case 0x0131: // ı (dotless i) - just map to regular i
+        return 142;
+      
+      // Lowercase o variants → 143 (o with dot)
+      case 0x00F2: // ò
+      case 0x00F3: // ó
+      case 0x00F4: // ô
+      case 0x00F5: // õ
+      case 0x00F6: // ö
+      case 0x014D: // ō
+      case 0x014F: // ŏ
+      case 0x0151: // ő
+        return 143;
+      
+      // Lowercase u variants → 144 (u with dot)
+      case 0x00F9: // ù
+      case 0x00FA: // ú
+      case 0x00FB: // û
+      case 0x00FC: // ü
+      case 0x0169: // ũ
+      case 0x016B: // ū
+      case 0x016D: // ŭ
+      case 0x016F: // ů
+      case 0x0171: // ű
+      case 0x0173: // ų
+        return 144;
+      
+      // Lowercase n with tilde → 145
+      case 0x00F1: // ñ
+      case 0x0144: // ń
+      case 0x0148: // ň
+        return 145;
+      
+      // c with cedilla → 146
+      case 0x00E7: // ç
+      case 0x0107: // ć
+      case 0x0109: // ĉ
+      case 0x010B: // ċ
+      case 0x010D: // č
+        return 146;
+      
+      // y variants → 147
+      case 0x00FD: // ý
+      case 0x00FF: // ÿ
+      case 0x0177: // ŷ
+        return 147;
+      
+      // o with slash → 148
+      case 0x00F8: // ø
+        return 148;
+      
+      // ae ligature → 149
+      case 0x00E6: // æ
+        return 149;
+      
+      // oe ligature → 150
+      case 0x0153: // œ
+        return 150;
+      
+      // German sharp s → 151
+      case 0x00DF: // ß
+        return 151;
+      
+      // Inverted punctuation
+      case 0x00BF: // ¿
+        return 152;
+      case 0x00A1: // ¡
+        return 153;
+      
+      // Degree symbol
+      case 0x00B0: // °
+        return 154;
+      
+      // UPPERCASE accented letters → map to plain ASCII uppercase
+      case 0x00C0: case 0x00C1: case 0x00C2: case 0x00C3: case 0x00C4: case 0x00C5: // À-Å
+        return 'A';
+      case 0x00C8: case 0x00C9: case 0x00CA: case 0x00CB: // È-Ë
+        return 'E';
+      case 0x00CC: case 0x00CD: case 0x00CE: case 0x00CF: // Ì-Ï
+        return 'I';
+      case 0x00D2: case 0x00D3: case 0x00D4: case 0x00D5: case 0x00D6: case 0x00D8: // Ò-Ö, Ø
+        return 'O';
+      case 0x00D9: case 0x00DA: case 0x00DB: case 0x00DC: // Ù-Ü
+        return 'U';
+      case 0x00D1: // Ñ
+        return 'N';
+      case 0x00C7: // Ç
+        return 'C';
+      case 0x00DD: // Ý
+        return 'Y';
+    }
+  }
+  
+  // 3-byte UTF-8 sequence (for symbols like ▶, ♪, etc.)
+  if ((c & 0xF0) == 0xE0 && str[1] != '\0' && str[2] != '\0') {
+    bytes_consumed = 3;
+    uint16_t codepoint = ((c & 0x0F) << 12) | (((uint8_t)str[1] & 0x3F) << 6) | ((uint8_t)str[2] & 0x3F);
+    
+    // Media control symbols (if user types them directly)
+    switch (codepoint) {
+      case 0x25B6: // ▶ Play
+        return 128;
+      case 0x23F9: // ⏹ Stop
+        return 129;
+      case 0x23F8: // ⏸ Pause
+        return 130;
+      case 0x23ED: // ⏭ Next
+        return 131;
+      case 0x23EE: // ⏮ Previous
+        return 132;
+      case 0x2665: // ♥ Heart
+        return 135;
+      case 0x266A: // ♪ Music note
+      case 0x266B: // ♫ Double music note
+        return 136;
+    }
+  }
+  
+  // Unsupported character - return space
+  return ' ';
+}
 
 }  // namespace retrotext_display
 }  // namespace esphome

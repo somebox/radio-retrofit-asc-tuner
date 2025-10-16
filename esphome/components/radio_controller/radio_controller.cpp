@@ -46,6 +46,9 @@ void RadioController::setup() {
     this->handle_key_release_(row, col);
   });
   
+  // Build initial browse list from presets
+  build_browse_list_();
+  
   ESP_LOGCONFIG(TAG, "Radio Controller initialized with %d presets", this->presets_.size());
 }
 
@@ -53,14 +56,12 @@ void RadioController::loop() {
   // Update VU meter backlight slew
   this->update_vu_meter_slew_();
   
-  // Check for playlist browsing timeout (10 seconds of inactivity)
-  if (this->playlist_mode_active_ && this->playlist_playing_ && 
-      this->last_playlist_interaction_ > 0) {
-    uint32_t elapsed = millis() - this->last_playlist_interaction_;
-    if (elapsed > 10000) {  // 10 second timeout
-      ESP_LOGI(TAG, "Playlist browsing timeout - staying in playing mode");
-      // Just clear the timeout flag, metadata will continue showing
-      this->last_playlist_interaction_ = 0;
+  // Check for browse mode timeout (5 seconds of inactivity)
+  if (this->browse_mode_active_ && this->last_browse_interaction_ > 0) {
+    uint32_t elapsed = millis() - this->last_browse_interaction_;
+    if (elapsed > 5000) {  // 5 second timeout
+      ESP_LOGI(TAG, "Browse timeout - returning to now-playing");
+      this->exit_browse_mode_();
     }
   }
 }
@@ -122,13 +123,14 @@ void RadioController::handle_key_press_(uint8_t row, uint8_t column) {
   ESP_LOGD(TAG, "Key pressed: row=%d, col=%d", row, column);
   
   // Check if this is an encoder rotation channel (A or B)
+  // Actual hardware mapping (may differ from HardwareConfig.h)
   if (this->has_encoder_button_ && row == this->encoder_row_) {
     // Encoder channel A (col 2) or B (col 3)
-    if (column == 2) {  // Encoder B
+    if (column == 3) {  // Encoder B
       this->encoder_b_state_ = true;
       this->process_encoder_rotation_();
       return;
-    } else if (column == 3) {  // Encoder A
+    } else if (column == 2) {  // Encoder A
       this->encoder_a_state_ = true;
       this->process_encoder_rotation_();
       return;
@@ -138,34 +140,26 @@ void RadioController::handle_key_press_(uint8_t row, uint8_t column) {
   // Check if this is a preset button
   Preset *preset = this->find_preset_(row, column);
   if (preset != nullptr) {
+    // Check if this is the Memory button (special playlist mode trigger)
+    if (preset->target == "__PLAYLIST_MODE__") {
+      ESP_LOGI(TAG, "Memory button: toggle browse mode");
+      if (browse_mode_active_) {
+        this->exit_browse_mode_();
+      } else {
+        this->enter_browse_mode_();
+      }
+      return;
+    }
+    
+    // Regular preset button - play that preset
     this->activate_preset_(preset);
     return;
   }
   
-  // Check if this is the encoder button
+  // Check if this is the encoder button - NEW: play/stop toggle
   if (this->has_encoder_button_ && row == this->encoder_row_ && column == this->encoder_column_) {
-    if (this->playlist_mode_active_) {
-      // In playlist mode
-      if (this->playlist_playing_) {
-        // Currently playing - return to playlist list
-        ESP_LOGI(TAG, "Encoder button: returning to playlist list");
-        this->playlist_playing_ = false;
-        this->last_playlist_interaction_ = millis();
-        
-        // Show current playlist in list
-        if (this->display_ != nullptr && !this->playlists_.empty() && 
-            this->playlist_index_ < this->playlists_.size()) {
-          this->display_->set_text(this->playlists_[this->playlist_index_].name.c_str());
-        }
-      } else {
-        // Browsing list - select and play current playlist
-        ESP_LOGI(TAG, "Encoder button: selecting playlist");
-        this->select_current_playlist();
-        // Note: playlist_playing_ is set inside select_current_playlist()
-      }
-    }
-    // In preset mode: encoder button does nothing (removed stop functionality)
-    
+    ESP_LOGI(TAG, "Encoder button pressed: toggle play/stop");
+    this->toggle_play_stop_();
     return;
   }
   
@@ -174,13 +168,14 @@ void RadioController::handle_key_press_(uint8_t row, uint8_t column) {
 }
 
 void RadioController::handle_key_release_(uint8_t row, uint8_t column) {
-  // Handle encoder channel releases
+  // Handle encoder channel releases - update state and process
+  // The quadrature decoder tracks detent progress and prevents double-counting
   if (this->has_encoder_button_ && row == this->encoder_row_) {
-    if (column == 2) {  // Encoder B
+    if (column == 3) {  // Encoder B
       this->encoder_b_state_ = false;
       this->process_encoder_rotation_();
       return;
-    } else if (column == 3) {  // Encoder A
+    } else if (column == 2) {  // Encoder A
       this->encoder_a_state_ = false;
       this->process_encoder_rotation_();
       return;
@@ -191,69 +186,89 @@ void RadioController::handle_key_release_(uint8_t row, uint8_t column) {
 }
 
 void RadioController::process_encoder_rotation_() {
-  // Single-edge counting mode: Only count rising edges of channel B
-  // This prevents press/release from canceling out when A doesn't fire
+  // Full quadrature decoding with Gray code state machine
+  // Tracks 4-step detent cycle for reliable rotation detection
   
-  int8_t current_encoded = (this->encoder_a_state_ ? 0b10 : 0) | (this->encoder_b_state_ ? 0b01 : 0);
-  int8_t last_b_state = this->encoder_last_encoded_ & 0b01;
-  int8_t current_b_state = current_encoded & 0b01;
+  uint8_t current_state = (this->encoder_a_state_ ? 0b10 : 0) | (this->encoder_b_state_ ? 0b01 : 0);
+  uint8_t old_state = this->encoder_last_encoded_;
   
-  // Only act on RISING edge of channel B (press, not release)
-  if (current_b_state == 1 && last_b_state == 0) {
-    // Direction determined by A state when B rises
-    bool a_state = this->encoder_a_state_;
-    
-    if (!a_state) {
-      this->encoder_count_++;  // Clockwise (A low when B rises)
-      ESP_LOGD(TAG, "Encoder: CW step (A:0 B:1, count:%d)", this->encoder_count_);
-    } else {
-      this->encoder_count_--;  // Counter-clockwise (A high when B rises)
-      ESP_LOGD(TAG, "Encoder: CCW step (A:1 B:1, count:%d)", this->encoder_count_);
-    }
-    
-    // Handle encoder turns in playlist mode
-    if (this->playlist_mode_active_) {
-      // If playing, return to browse mode on any encoder turn
-      if (this->playlist_playing_) {
-        ESP_LOGI(TAG, "Encoder turned while playing - returning to playlist list");
-        this->playlist_playing_ = false;
-        this->last_playlist_interaction_ = millis();
-        
-        // Show current playlist in list
-        if (this->display_ != nullptr && !this->playlists_.empty() && 
-            this->playlist_index_ < this->playlists_.size()) {
-          this->display_->set_text(this->playlists_[this->playlist_index_].name.c_str());
-        }
-      } else {
-        // Browsing - scroll through list
-        int32_t encoder_change = this->encoder_count_ - this->last_encoder_count_;
-        
-        // Scroll on every single step
-        if (encoder_change >= 1) {
-          ESP_LOGI(TAG, "Encoder scroll: NEXT (count: %d, change: %d)", 
-                   this->encoder_count_, encoder_change);
-          this->scroll_playlist(1);
-          this->last_playlist_interaction_ = millis();
-          this->last_encoder_count_ = this->encoder_count_;
-        } else if (encoder_change <= -1) {
-          ESP_LOGI(TAG, "Encoder scroll: PREV (count: %d, change: %d)", 
-                   this->encoder_count_, encoder_change);
-          this->scroll_playlist(-1);
-          this->last_playlist_interaction_ = millis();
-          this->last_encoder_count_ = this->encoder_count_;
-        }
-      }
-    }
-    
-    // Reset count periodically to prevent overflow
-    if (abs(this->encoder_count_) > 1000) {
-      this->encoder_count_ = 0;
-      this->last_encoder_count_ = 0;
-    }
+  // Only process if state actually changed
+  if (current_state == old_state) {
+    return;
   }
   
   // Update state for next comparison
-  this->encoder_last_encoded_ = current_encoded;
+  this->encoder_last_encoded_ = current_state;
+  
+  // Detect valid Gray code transitions
+  bool valid_transition = false;
+  int8_t direction = 0;
+  
+  // Clockwise: 00 -> 01 -> 11 -> 10 -> 00
+  if ((old_state == 0b00 && current_state == 0b01) ||
+      (old_state == 0b01 && current_state == 0b11) ||
+      (old_state == 0b11 && current_state == 0b10) ||
+      (old_state == 0b10 && current_state == 0b00)) {
+    direction = 1;
+    valid_transition = true;
+  }
+  // Counter-clockwise: 00 -> 10 -> 11 -> 01 -> 00
+  else if ((old_state == 0b00 && current_state == 0b10) ||
+           (old_state == 0b10 && current_state == 0b11) ||
+           (old_state == 0b11 && current_state == 0b01) ||
+           (old_state == 0b01 && current_state == 0b00)) {
+    direction = -1;
+    valid_transition = true;
+  }
+  
+  if (!valid_transition) {
+    ESP_LOGV(TAG, "Encoder: Invalid transition %d->%d, resetting", old_state, current_state);
+    this->encoder_detent_count_ = 0;
+    return;
+  }
+  
+  // Track detent progress (2 steps per detent for this encoder hardware)
+  this->encoder_detent_count_ += direction;
+  
+  ESP_LOGV(TAG, "Encoder: %s transition %d->%d, detent: %d/2",
+           direction > 0 ? "CW" : "CCW", old_state, current_state, 
+           abs(this->encoder_detent_count_));
+  
+  // Complete detent reached (2 steps, not 4)
+  bool detent_complete = false;
+  if (this->encoder_detent_count_ >= 2) {
+    this->encoder_count_++;
+    this->encoder_detent_count_ = 0;
+    detent_complete = true;
+    ESP_LOGD(TAG, "Encoder: CW detent complete (count:%d)", this->encoder_count_);
+  } else if (this->encoder_detent_count_ <= -2) {
+    this->encoder_count_--;
+    this->encoder_detent_count_ = 0;
+    detent_complete = true;
+    ESP_LOGD(TAG, "Encoder: CCW detent complete (count:%d)", this->encoder_count_);
+  }
+  
+  // NEW: Handle encoder turns - always scrolls unified browse list
+  // Direction inverted: CW = previous, CCW = next (per user request)
+  if (detent_complete) {
+    int32_t encoder_change = this->encoder_count_ - this->last_encoder_count_;
+    
+    if (encoder_change > 0) {
+      ESP_LOGI(TAG, "Encoder: CW scroll (previous)");
+      this->scroll_browse_(-1);  // CW = backward
+      this->last_encoder_count_ = this->encoder_count_;
+    } else if (encoder_change < 0) {
+      ESP_LOGI(TAG, "Encoder: CCW scroll (next)");
+      this->scroll_browse_(1);   // CCW = forward
+      this->last_encoder_count_ = this->encoder_count_;
+    }
+  }
+  
+  // Reset count periodically to prevent overflow
+  if (abs(this->encoder_count_) > 1000) {
+    this->encoder_count_ = 0;
+    this->last_encoder_count_ = 0;
+  }
 }
 
 Preset* RadioController::find_preset_(uint8_t row, uint8_t column) {
@@ -293,66 +308,32 @@ void RadioController::activate_preset_(Preset *preset) {
     }
   }
   
-  // Check if this is the special playlist mode trigger
+  // IMPORTANT: Also set currently_playing_index_ in browse_items_
+  // This is needed for display updates to show station name with icon
+  for (size_t i = 0; i < browse_items_.size(); i++) {
+    if (browse_items_[i].type == BrowseItem::PRESET && browse_items_[i].preset_index == preset_index) {
+      currently_playing_index_ = i;
+      browse_index_ = i;  // Sync browse position too
+      ESP_LOGD(TAG, "Set currently_playing_index_ to %d for preset '%s'", i, preset->display_text.c_str());
+      break;
+    }
+  }
+  
+  // Memory button handling is now done in handle_key_press_() 
+  // which toggles browse mode directly. This check is kept for safety
+  // but should never be reached since Memory button is handled separately.
   if (preset->target == "__PLAYLIST_MODE__") {
-    // If already in playlist mode, exit and stop playback
-    if (this->playlist_mode_active_) {
-      ESP_LOGI(TAG, "Exiting playlist browser mode and stopping playback");
-      this->exit_playlist_mode();
-      this->playlist_playing_ = false;
-      
-      // Stop playback
-      std::map<std::string, std::string> service_data;
-      service_data["entity_id"] = "media_player.macstudio_local";
-      this->call_home_assistant_service_("media_player.media_stop", service_data);
-      
-      // Show "Stopped" briefly
-      if (this->display_ != nullptr) {
-        this->display_->set_text("Stopped");
-      }
-      
-      // Clear LEDs
-      this->update_mode_led_(false);
-      if (this->panel_leds_initialized_ && this->led_driver_) {
-        this->led_driver_->clear();
-        this->led_driver_->show();
-      }
-      this->current_preset_index_ = 255;
-      
-      // Reset VU meter
-      this->set_vu_meter_target_brightness(26);
-      
-      return;
-    }
-    
-    // Entering playlist mode
-    ESP_LOGI(TAG, "Entering playlist browser mode");
-    
-    // Show "Playlists" briefly
-    if (this->display_ != nullptr) {
-      this->display_->set_text("Playlists");
-    }
-    
-    // Update preset LED (preset 8)
-    this->update_preset_led_(preset_index);
-    
-    // Enter playlist mode after 800ms
-    this->set_timeout("enter_playlist_mode", 800, [this]() {
-      this->enter_playlist_mode();
-    });
-    
-    // Don't call any service or publish media_id yet
+    ESP_LOGW(TAG, "Memory button reached activate_preset_ - should be handled in handle_key_press_");
     return;
   }
   
-  // Exit playlist mode if entering preset mode
-  if (this->playlist_mode_active_) {
-    this->exit_playlist_mode();
-  }
-  
-  // Update display
+  // Update display (will show play icon since we're starting playback)
+  // Set is_playing_ = true immediately for better UX
+  is_playing_ = true;
   if (this->display_ != nullptr) {
-    this->display_->set_text(preset->display_text.c_str());
+    std::string display_text = this->format_display_text_(preset->display_text);
+    this->display_->set_text(display_text.c_str());
+    ESP_LOGD(TAG, "Display updated: '%s'", display_text.c_str());
   }
   
   // Update text sensor
@@ -670,113 +651,418 @@ void RadioController::load_playlist_data(const std::string &json_data) {
   
   ESP_LOGI(TAG, "Loaded %d playlists", this->playlists_.size());
   
-  // If in playlist mode and we have playlists, show first one
-  if (this->playlist_mode_active_ && !this->playlists_.empty()) {
+  // Rebuild browse list to include new playlists
+  build_browse_list_();
+}
+
+// ============================================================================
+// NEW UNIFIED BROWSE SYSTEM
+// ============================================================================
+
+void RadioController::build_browse_list_() {
+  browse_items_.clear();
+  
+  // Add all presets (except Memory button which is preset 8)
+  for (size_t i = 0; i < this->presets_.size(); i++) {
+    const auto &preset = this->presets_[i];
+    
+    // Skip the special playlist mode trigger
+    if (preset.target == "__PLAYLIST_MODE__") {
+      continue;
+    }
+    
+    BrowseItem item;
+    item.type = BrowseItem::PRESET;
+    item.name = preset.display_text;
+    item.target = preset.target;
+    item.preset_index = i;
+    item.row = preset.row;
+    item.column = preset.column;
+    browse_items_.push_back(item);
+  }
+  
+  // Add all playlists
+  for (const auto &playlist : this->playlists_) {
+    BrowseItem item;
+    item.type = BrowseItem::PLAYLIST;
+    item.name = playlist.name;
+    item.target = playlist.uri;
+    item.preset_index = -1;  // Not a preset
+    item.row = 0;
+    item.column = 0;
+    browse_items_.push_back(item);
+  }
+  
+  ESP_LOGI(TAG, "Built browse list: %d items (%d presets, %d playlists)",
+           browse_items_.size(), 
+           this->presets_.size() - 1,  // -1 for Memory button
+           this->playlists_.size());
+}
+
+void RadioController::enter_browse_mode_() {
+  this->browse_mode_active_ = true;
+  this->last_browse_interaction_ = millis();
+  
+  // Show current selection
+  // Show play/stop icon ONLY if this is the currently playing station
+  if (!browse_items_.empty() && browse_index_ < browse_items_.size()) {
     if (this->display_ != nullptr) {
-      this->display_->set_text(this->playlists_[0].name.c_str());
+      std::string display_text;
+      
+      // Add icon only if this is the currently playing item
+      if ((int)browse_index_ == currently_playing_index_) {
+        display_text = this->format_display_text_(browse_items_[browse_index_].name);
+      } else {
+        display_text = browse_items_[browse_index_].name;
+      }
+      
+      this->display_->set_text(display_text.c_str());
     }
-  } else if (this->playlist_mode_active_ && this->playlists_.empty()) {
+  }
+  
+  update_leds_for_browse_();
+  
+  ESP_LOGI(TAG, "Entered browse mode at index %d/%d", browse_index_, browse_items_.size());
+}
+
+void RadioController::exit_browse_mode_() {
+  this->browse_mode_active_ = false;
+  
+  // Return to showing now-playing
+  if (currently_playing_index_ >= 0 && currently_playing_index_ < (int)browse_items_.size()) {
     if (this->display_ != nullptr) {
-      this->display_->set_text("NO PLAYLISTS");
+      // If playing with real metadata, show it; otherwise show station name
+      // Filter out "Ready" and other non-metadata values
+      bool has_real_metadata = !now_playing_metadata_.empty() && 
+                               now_playing_metadata_ != "Ready" && 
+                               now_playing_metadata_ != "ready" &&
+                               now_playing_metadata_ != "Stopped" &&
+                               now_playing_metadata_ != "stopped";
+      
+      if (is_playing_ && has_real_metadata) {
+        ESP_LOGD(TAG, "Showing metadata: %s", now_playing_metadata_.c_str());
+        std::string display_text = this->format_display_text_(now_playing_metadata_);
+        this->display_->set_text(display_text.c_str());  // RetroText auto-scrolls long text
+      } else {
+        // Show station name (with play or stop icon)
+        ESP_LOGD(TAG, "Showing station: %s", browse_items_[currently_playing_index_].name.c_str());
+        std::string display_text = this->format_display_text_(browse_items_[currently_playing_index_].name);
+        this->display_->set_text(display_text.c_str());
+      }
     }
+  } else if (this->display_ != nullptr) {
+    // No station selected
+    std::string display_text = this->format_display_text_(is_playing_ ? "PLAYING" : "STOPPED");
+    this->display_->set_text(display_text.c_str());
   }
+  
+  // Update LEDs to show only playing item
+  update_leds_for_browse_();
+  
+  ESP_LOGI(TAG, "Exited browse mode");
 }
 
-void RadioController::enter_playlist_mode() {
-  ESP_LOGI(TAG, "Entering playlist mode");
-  
-  this->playlist_mode_active_ = true;
-  this->playlist_index_ = 0;
-  
-  // Update radio mode sensor
-  if (this->radio_mode_sensor_ != nullptr) {
-    this->radio_mode_sensor_->publish_state("playlists");
-  }
-  
-  // Show initial message
-  if (this->display_ != nullptr) {
-    if (!this->playlists_.empty()) {
-      this->display_->set_text(this->playlists_[0].name.c_str());
-    } else {
-      this->display_->set_text("LOADING...");
-    }
-  }
-  
-  // LED already handled by preset activation (preset 8)
-}
-
-void RadioController::exit_playlist_mode() {
-  ESP_LOGI(TAG, "Exiting playlist mode");
-  
-  this->playlist_mode_active_ = false;
-  
-  // Update radio mode sensor
-  if (this->radio_mode_sensor_ != nullptr) {
-    this->radio_mode_sensor_->publish_state("presets");
-  }
-}
-
-void RadioController::scroll_playlist(int direction) {
-  if (!this->playlist_mode_active_ || this->playlists_.empty()) {
+void RadioController::scroll_browse_(int direction) {
+  if (browse_items_.empty()) {
     return;
   }
   
+  // Enter browse mode if not already active
+  if (!browse_mode_active_) {
+    enter_browse_mode_();
+  }
+  
+  this->last_browse_interaction_ = millis();
+  
   // Update index with wrapping
   if (direction > 0) {
-    this->playlist_index_ = (this->playlist_index_ + 1) % this->playlists_.size();
+    browse_index_ = (browse_index_ + 1) % browse_items_.size();
   } else if (direction < 0) {
-    if (this->playlist_index_ == 0) {
-      this->playlist_index_ = this->playlists_.size() - 1;
+    if (browse_index_ == 0) {
+      browse_index_ = browse_items_.size() - 1;
     } else {
-      this->playlist_index_--;
+      browse_index_--;
     }
   }
   
   // Update display
-  if (this->display_ != nullptr && this->playlist_index_ < this->playlists_.size()) {
-    const auto &playlist = this->playlists_[this->playlist_index_];
-    this->display_->set_text(playlist.name.c_str());
-    ESP_LOGI(TAG, "Scrolled to playlist %d/%d: %s", 
-             this->playlist_index_ + 1, this->playlists_.size(), playlist.name.c_str());
+  // Show play/stop icon ONLY if this is the currently playing station
+  if (this->display_ != nullptr && browse_index_ < browse_items_.size()) {
+    const auto &item = browse_items_[browse_index_];
+    std::string display_text;
+    
+    // Add icon only if this is the currently playing item
+    if ((int)browse_index_ == currently_playing_index_) {
+      display_text = this->format_display_text_(item.name);
+    } else {
+      display_text = item.name;
+    }
+    
+    this->display_->set_text(display_text.c_str());
+    ESP_LOGI(TAG, "Browsing: %d/%d - %s%s", 
+             browse_index_ + 1, browse_items_.size(), 
+             ((int)browse_index_ == currently_playing_index_) ? "[PLAYING] " : "",
+             item.name.c_str());
   }
+  
+  update_leds_for_browse_();
 }
 
-void RadioController::select_current_playlist() {
-  if (!this->playlist_mode_active_ || this->playlists_.empty() || 
-      this->playlist_index_ >= this->playlists_.size()) {
-    ESP_LOGW(TAG, "Cannot select playlist: mode=%d, count=%d, index=%d",
-             this->playlist_mode_active_, this->playlists_.size(), this->playlist_index_);
+void RadioController::update_leds_for_browse_() {
+  if (!this->panel_leds_initialized_ || !this->led_driver_) {
     return;
   }
   
-  const auto &playlist = this->playlists_[this->playlist_index_];
-  ESP_LOGI(TAG, "Selected playlist: %s (URI: %s)", playlist.name.c_str(), playlist.uri.c_str());
+  // Clear all preset LEDs
+  for (uint8_t i = 0; i < 8; i++) {
+    constexpr struct { uint8_t sw; uint8_t cs; } PRESET_LEDS[8] = {
+      {3, 3}, {3, 2}, {3, 1}, {3, 0},
+      {3, 8}, {3, 7}, {3, 6}, {3, 5}
+    };
+    this->led_driver_->set_pixel(PRESET_LEDS[i].cs, PRESET_LEDS[i].sw, 0);
+  }
   
-  // Mark as playing FIRST so display updates work correctly
-  this->playlist_playing_ = true;
-  this->last_playlist_interaction_ = millis();
+  if (!browse_mode_active_) {
+    // Not browsing - show only the currently playing station at BRIGHT (255)
+    if (currently_playing_index_ >= 0 && currently_playing_index_ < (int)browse_items_.size()) {
+      const auto &item = browse_items_[currently_playing_index_];
+      if (item.type == BrowseItem::PRESET && item.preset_index >= 0 && item.preset_index < 8) {
+        constexpr struct { uint8_t sw; uint8_t cs; } PRESET_LEDS[8] = {
+          {3, 3}, {3, 2}, {3, 1}, {3, 0},
+          {3, 8}, {3, 7}, {3, 6}, {3, 5}
+        };
+        this->led_driver_->set_pixel(PRESET_LEDS[item.preset_index].cs, 
+                                     PRESET_LEDS[item.preset_index].sw, 255);  // BRIGHT
+      }
+    }
+  } else {
+    // Browsing mode
+    // Show currently playing station BRIGHT (255) always
+    if (currently_playing_index_ >= 0 && currently_playing_index_ < (int)browse_items_.size()) {
+      const auto &playing = browse_items_[currently_playing_index_];
+      if (playing.type == BrowseItem::PRESET && playing.preset_index >= 0 && playing.preset_index < 8) {
+        constexpr struct { uint8_t sw; uint8_t cs; } PRESET_LEDS[8] = {
+          {3, 3}, {3, 2}, {3, 1}, {3, 0},
+          {3, 8}, {3, 7}, {3, 6}, {3, 5}
+        };
+        this->led_driver_->set_pixel(PRESET_LEDS[playing.preset_index].cs,
+                                     PRESET_LEDS[playing.preset_index].sw, 255);  // BRIGHT
+      }
+    }
+    
+    // Show current selection DIM (128) if it's different from playing
+    if (browse_index_ < browse_items_.size() && (int)browse_index_ != currently_playing_index_) {
+      const auto &current = browse_items_[browse_index_];
+      if (current.type == BrowseItem::PRESET && current.preset_index >= 0 && current.preset_index < 8) {
+        constexpr struct { uint8_t sw; uint8_t cs; } PRESET_LEDS[8] = {
+          {3, 3}, {3, 2}, {3, 1}, {3, 0},
+          {3, 8}, {3, 7}, {3, 6}, {3, 5}
+        };
+        this->led_driver_->set_pixel(PRESET_LEDS[current.preset_index].cs,
+                                     PRESET_LEDS[current.preset_index].sw, 128);  // DIM
+      }
+    }
+    
+    // Memory button LED on while browsing
+    this->led_driver_->set_pixel(5, 3, 255);  // Memory button at SW=3, CS=5
+  }
   
-  // Clear display and show loading state
+  this->led_driver_->show();
+}
+
+void RadioController::toggle_play_stop_() {
+  // PRIORITY 1: If browsing a DIFFERENT station, play it (even if something else is playing)
+  if (browse_mode_active_ && browse_index_ < browse_items_.size() && 
+      (int)browse_index_ != currently_playing_index_) {
+    ESP_LOGI(TAG, "Encoder button: switching to new station: %s", browse_items_[browse_index_].name.c_str());
+    play_browse_item_(browse_index_);
+    return;
+  }
+  
+  // PRIORITY 2: If on the current station and playing, toggle stop
+  if (is_playing_) {
+    ESP_LOGI(TAG, "Encoder button: requesting stop");
+    
+    is_playing_ = false;
+    
+    // Update display with stop icon
+    if (this->display_ != nullptr) {
+      if (currently_playing_index_ >= 0 && currently_playing_index_ < (int)browse_items_.size()) {
+        std::string display_text = this->format_display_text_(browse_items_[currently_playing_index_].name);
+        this->display_->set_text(display_text.c_str());
+      } else {
+        std::string display_text = this->format_display_text_("STOPPED");
+        this->display_->set_text(display_text.c_str());
+      }
+    }
+    
+    this->set_vu_meter_target_brightness(26);
+    this->update_mode_led_(false);
+    
+    // Signal HA to stop
+    if (this->preset_target_sensor_ != nullptr) {
+      this->preset_target_sensor_->publish_state("");
+    }
+    
+  } else {
+    // PRIORITY 3: If stopped, resume playback
+    ESP_LOGD(TAG, "Encoder button: trying to resume (browse_mode=%d, browse_index=%d, currently_playing=%d)",
+             browse_mode_active_, browse_index_, currently_playing_index_);
+    
+    if (browse_mode_active_ && browse_index_ < browse_items_.size()) {
+      ESP_LOGI(TAG, "Encoder button: playing selection: %s", browse_items_[browse_index_].name.c_str());
+      play_browse_item_(browse_index_);
+    } else if (currently_playing_index_ >= 0 && currently_playing_index_ < (int)browse_items_.size()) {
+      const auto &item = browse_items_[currently_playing_index_];
+      ESP_LOGI(TAG, "Encoder button: resuming: %s (target: %s)", item.name.c_str(), item.target.c_str());
+      
+      is_playing_ = true;
+      
+      if (this->display_ != nullptr) {
+        std::string display_text = this->format_display_text_(item.name);
+        this->display_->set_text(display_text.c_str());
+      }
+      
+      this->update_mode_led_(true);
+      this->set_vu_meter_target_brightness(204);
+      
+      if (this->preset_target_sensor_ != nullptr) {
+        this->preset_target_sensor_->publish_state(item.target);
+        ESP_LOGD(TAG, "Re-published media_id for resume: '%s'", item.target.c_str());
+      }
+    } else {
+      ESP_LOGW(TAG, "Cannot resume: no valid station (currently_playing_index=%d, browse_items size=%d)",
+               currently_playing_index_, browse_items_.size());
+    }
+  }
+}
+
+void RadioController::play_browse_item_(size_t index) {
+  if (index >= browse_items_.size()) {
+    return;
+  }
+  
+  const auto &item = browse_items_[index];
+  
+  ESP_LOGI(TAG, "Playing item: %s (target: %s)", item.name.c_str(), item.target.c_str());
+  
+  // Update state
+  currently_playing_index_ = index;
+  browse_index_ = index;  // Sync selection
+  is_playing_ = true;
+  
+  // Exit browse mode (will show station name or metadata)
+  if (browse_mode_active_) {
+    this->exit_browse_mode_();
+  }
+  
+  // Update display with station name (with play icon)
   if (this->display_ != nullptr) {
-    this->display_->set_text("LOADING...");
+    std::string display_text = this->format_display_text_(item.name);
+    this->display_->set_text(display_text.c_str());
   }
   
-  // Publish the playlist URI as current media ID
-  // This will trigger the Home Assistant automation to start playback
-  if (this->preset_target_sensor_ != nullptr) {
-    this->preset_target_sensor_->publish_state(playlist.uri);
-  }
-  
-  // Update preset text sensor with playlist name
+  // Update text sensors for Home Assistant
   if (this->preset_text_sensor_ != nullptr) {
-    this->preset_text_sensor_->publish_state(playlist.name);
+    this->preset_text_sensor_->publish_state(item.name);
   }
+  
+  if (this->preset_target_sensor_ != nullptr) {
+    this->preset_target_sensor_->publish_state(item.target);
+    ESP_LOGD(TAG, "Published media_id: '%s'", item.target.c_str());
+  }
+  
+  // Update LEDs
+  update_leds_for_browse_();
+  
+  // Update mode LED
+  this->update_mode_led_(true);
   
   // Set VU meter to playing level
-  this->set_vu_meter_target_brightness(204);  // 80% of 255
+  this->set_vu_meter_target_brightness(204);  // 80% when playing
   
-  // Stay in playlist mode, marked as playing
-  // User can press encoder to return to list, or playlist button to exit
+  // The Home Assistant automation will pick up the media_id change and start playback
+}
+
+std::string RadioController::format_display_text_(const std::string &text, bool show_icon) {
+  if (!show_icon) {
+    return text;
+  }
+  
+  // Prepend play (▶ = glyph 128) or stop (⏹ = glyph 129) icon + space
+  std::string result;
+  result += (char)(is_playing_ ? 128 : 129);  // Play or Stop icon
+  result += ' ';
+  result += text;
+  return result;
+}
+
+void RadioController::set_now_playing_metadata(const std::string &metadata) {
+  this->now_playing_metadata_ = metadata;
+  
+  ESP_LOGD(TAG, "Metadata updated: %s", metadata.c_str());
+  
+  // Filter out non-metadata values like "Ready", "Stopped"
+  bool is_real_metadata = !metadata.empty() && 
+                          metadata != "Ready" && 
+                          metadata != "ready" &&
+                          metadata != "Stopped" &&
+                          metadata != "stopped";
+  
+  // If not browsing and currently playing, update display with metadata (if it's real metadata)
+  if (!browse_mode_active_ && is_playing_ && this->display_ != nullptr && is_real_metadata) {
+    std::string display_text = this->format_display_text_(metadata);
+    this->display_->set_text(display_text.c_str());  // RetroText auto-scrolls
+  }
+}
+
+void RadioController::set_playback_state(bool playing) {
+  bool state_changed = (is_playing_ != playing);
+  is_playing_ = playing;
+  
+  ESP_LOGI(TAG, "set_playback_state(%s) - state_changed=%d", playing ? "PLAYING" : "STOPPED", state_changed);
+  
+  // Always update display when called, not just on state change
+  // This ensures display updates after spinner clears
+  
+  // Update VU meter (only if state changed)
+  if (state_changed) {
+    this->set_vu_meter_target_brightness(playing ? 204 : 26);
+    this->update_mode_led_(playing);
+  }
+  
+  // Always update display (even if state didn't change)
+  // This ensures the icon appears after loading spinner
+  if (!browse_mode_active_ && this->display_ != nullptr) {
+    // Filter out non-metadata values
+    bool has_real_metadata = !now_playing_metadata_.empty() && 
+                             now_playing_metadata_ != "Ready" && 
+                             now_playing_metadata_ != "ready" &&
+                             now_playing_metadata_ != "Stopped" &&
+                             now_playing_metadata_ != "stopped";
+    
+    if (playing && has_real_metadata) {
+      // Playing with real metadata - show it with icon
+      ESP_LOGD(TAG, "Display: metadata with icon");
+      std::string display_text = this->format_display_text_(now_playing_metadata_);
+      this->display_->set_text(display_text.c_str());
+    } else if (playing && currently_playing_index_ >= 0 && currently_playing_index_ < (int)browse_items_.size()) {
+      // Playing but no real metadata yet - show station name with play icon
+      ESP_LOGD(TAG, "Display: station name with play icon");
+      std::string display_text = this->format_display_text_(browse_items_[currently_playing_index_].name);
+      this->display_->set_text(display_text.c_str());
+    } else if (!playing && currently_playing_index_ >= 0 && currently_playing_index_ < (int)browse_items_.size()) {
+      // Stopped - show station name with stop icon
+      ESP_LOGD(TAG, "Display: station name with stop icon");
+      std::string display_text = this->format_display_text_(browse_items_[currently_playing_index_].name);
+      this->display_->set_text(display_text.c_str());
+    } else {
+      // Fallback
+      ESP_LOGD(TAG, "Display: fallback PLAYING/STOPPED");
+      std::string display_text = this->format_display_text_(playing ? "PLAYING" : "STOPPED");
+      this->display_->set_text(display_text.c_str());
+    }
+  }
 }
 
 }  // namespace radio_controller

@@ -49,7 +49,7 @@ constexpr PresetButton PRESET_BUTTONS[] = {
 
 constexpr int NUM_PRESETS = sizeof(PRESET_BUTTONS) / sizeof(PRESET_BUTTONS[0]);
 
-// Rotary Encoder (Row 1)
+// Rotary Encoder (Row 2) - Native firmware config (different from ESPHome)
 constexpr int ENCODER_ROW        = 2;
 constexpr int ENCODER_COL_A      = 3;  // Channel A
 constexpr int ENCODER_COL_B      = 4;  // Channel B
