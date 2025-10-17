@@ -1,0 +1,51 @@
+# ============================================
+# Radio Configuration Helper
+# ============================================
+# This helper stores your media player entity ID so you only need to set it once.
+# All automations will reference this helper instead of hardcoding the player.
+#
+# A SELECT helper is recommended over TEXT because:
+# - Dropdown shows available media players
+# - Prevents typos
+# - Better user experience
+#
+# Setup in Home Assistant:
+#   Settings → Devices & Services → Helpers → Create Helper → Dropdown
+#
+# OR add to configuration.yaml:
+#
+# input_select:
+#   radio_media_player_entity:
+#     name: Radio Media Player Entity
+#     icon: mdi:speaker
+#     options:
+#       - media_player.macstudio_local_3
+#       # Add other media players as needed
+#     initial: media_player.macstudio_local_3
+
+---
+# UI Helper Configuration (for GUI setup)
+# Settings → Devices & Services → Helpers → Create Helper → Dropdown
+
+Name: Radio Media Player Entity
+Icon: mdi:speaker
+
+Options:
+  - media_player.macstudio_local_3
+  # Add additional media player entity IDs here
+
+# ============================================
+# Instructions
+# ============================================
+# 1. Create this helper in Home Assistant
+# 2. Add all your media player entity IDs to the options list
+# 3. Select your current media player
+# 4. The helper will be named: input_select.radio_media_player_entity
+# 5. All automations will automatically use this value
+#
+# To change your media player later:
+#   Settings → Devices & Services → Helpers → Radio Media Player Entity
+#   → Select a different option from the dropdown
+#
+# To add more media players:
+#   Edit the helper and add more options to the list

@@ -6,10 +6,12 @@ Retrofit of a 1970s ASC AS-5000E digital tuner with ESP32 and internet streaming
 
 ## What It Does
 
-- **8 Preset Buttons**: Store and recall internet radio stations or playlists
-- **Rotary Encoder**: Browse through available stations
+- **8 Preset Buttons**: Save and recall any favorite radio station or playlist (stored in ESP32 flash)
+- **Save Preset Mode**: Hold Memory button 2 seconds → press preset button to save current station
+- **Browse All Favorites**: Encoder scrolls through ALL Music Assistant favorites (radios + playlists)
 - **LED Matrix Display**: Shows station metadata with automatic scrolling (18 characters)
-- **LED Feedback**: Preset button LEDs indicate current selection
+- **LED Feedback**: Preset button LEDs indicate current selection with brightness levels
+- **Auto-Resume**: Remembers last preset and auto-plays on power-up
 - **Home Assistant Integration**: Full control via ESPHome components
 
 The original 7-segment frequency display is replaced with [RetroText](https://github.com/PixelTheater/retrotext) (3× 6-character LED matrix modules). Buttons and LEDs are controlled via [Lights n' Buttons](https://github.com/PixelTheater/lights-and-buttons) PCB featuring IS31FL3737 LED drivers and TCA8418 keypad controller.
@@ -163,73 +165,29 @@ radio_controller:
 
 ### Home Assistant Integration
 
-#### Template Sensor for Metadata
+The radio requires **one config helper**, **one template sensor**, and **two automations** in Home Assistant.
 
-Create in **Settings → Devices & Services → Helpers → Template Sensor**:
+📁 **See [`esphome/automations/`](esphome/automations/) for complete setup instructions and YAML configurations.**
 
-**Name:** `Radio Now Playing`
+#### Quick Start
 
-**State Template:**
-```jinja
-{% set player = 'media_player.macstudio_local' %}
-{% if is_state(player, 'playing') %}
-  {% set title = state_attr(player, 'media_title') | default('') %}
-  {% set artist = state_attr(player, 'media_artist') | default('') %}
-  {% set album = state_attr(player, 'media_album_name') | default('') %}
-  
-  {% set parts = [] %}
-  {% if album %}{% set parts = parts + [album] %}{% endif %}
-  {% if title and title != album %}{% set parts = parts + [title] %}{% endif %}
-  {% if artist and artist != album and artist != title %}{% set parts = parts + [artist] %}{% endif %}
-  
-  {{ parts | join(' - ') if parts else 'Playing' }}
-{% else %}
-  Ready
-{% endif %}
-```
+1. Create a **dropdown helper** to store your media player entity ID (configure once, use everywhere)
+2. Find your **media player entity ID** (Developer Tools → States) and set it in the helper
+3. Import into Home Assistant:
+   - Template sensor via **Settings → Helpers → Template Sensor**
+   - Automations via **Settings → Automations → Import**
 
-#### Automation for Preset Playback
+#### Required Components
 
-Create in **Settings → Automations → Create Automation → Edit in YAML**:
+| Component | File | Purpose |
+|-----------|------|---------|
+| Config Helper | [`config_helper.yaml`](esphome/automations/config_helper.yaml) | Stores media player entity ID **(create first!)** |
+| Template Sensor | [`now_playing_sensor.yaml`](esphome/automations/now_playing_sensor.yaml) | Extracts metadata from media player |
+| Automation | [`media_control.yaml`](esphome/automations/media_control.yaml) | Handles play/stop commands |
+| Automation | [`load_playlists.yaml`](esphome/automations/load_playlists.yaml) | Fetches playlists from Music Assistant |
+| Automation | [`load_all_favorites.yaml`](esphome/automations/load_all_favorites.yaml) | Fetches ALL favorites for unified browsing |
 
-```yaml
-alias: Radio Preset Player
-triggers:
-  - entity_id: sensor.retro_radio_current_media_id
-    trigger: state
-conditions:
-  - condition: template
-    value_template: "{{ trigger.to_state.state not in ['', 'unknown', 'unavailable'] }}"
-actions:
-  # Set loading state
-  - action: text.set_value
-    target:
-      entity_id: text.retro_radio_stream_state
-    data:
-      value: loading
-  
-  # Play media
-  - action: music_assistant.play_media
-    target:
-      entity_id: media_player.macstudio_local
-    data:
-      media_id: "{{ trigger.to_state.state }}"
-      radio_mode: false
-  
-  # Wait for stream
-  - wait_template: >
-      {{ state_attr('media_player.macstudio_local', 'media_position') | float(0) > 0 }}
-    timeout: '00:00:10'
-    continue_on_timeout: true
-  
-  # Set playing state
-  - action: text.set_value
-    target:
-      entity_id: text.retro_radio_stream_state
-    data:
-      value: playing
-mode: restart
-```
+**Full setup guide:** [`esphome/automations/README.md`](esphome/automations/README.md)
 
 ## Hardware
 

@@ -1,6 +1,7 @@
 import esphome.codegen as cg
 import esphome.config_validation as cv
-from esphome.components import tca8418_keypad, retrotext_display, text_sensor, select, i2c
+from esphome.components import tca8418_keypad, retrotext_display, select, i2c
+from esphome.components import text_sensor as text_sensor_component
 from esphome.const import CONF_ID, CONF_ICON
 from esphome import automation
 
@@ -24,6 +25,7 @@ CONF_SERVICE = 'service'
 CONF_DATA = 'data'
 CONF_CONTROLS = 'controls'
 CONF_ENCODER_BUTTON = 'encoder_button'
+CONF_MEMORY_BUTTON = 'memory_button'
 
 BUTTON_SCHEMA = cv.Schema({
     cv.Required(CONF_ROW): cv.int_range(min=0, max=7),
@@ -46,6 +48,7 @@ PRESET_SCHEMA = cv.Schema({
 
 CONTROLS_SCHEMA = cv.Schema({
     cv.Optional(CONF_ENCODER_BUTTON): BUTTON_SCHEMA,
+    cv.Optional(CONF_MEMORY_BUTTON): BUTTON_SCHEMA,
 })
 
 CONFIG_SCHEMA = cv.Schema({
@@ -60,7 +63,7 @@ CONFIG_SCHEMA = cv.Schema({
 }).extend(cv.COMPONENT_SCHEMA)
 
 # Text sensor platform for current preset
-TEXT_SENSOR_SCHEMA = text_sensor.text_sensor_schema(
+TEXT_SENSOR_SCHEMA = text_sensor_component.text_sensor_schema(
     icon="mdi:radio"
 ).extend({
     cv.GenerateID(CONF_ID): cv.use_id(RadioController),
@@ -135,6 +138,12 @@ async def to_code(config):
         if CONF_ENCODER_BUTTON in controls:
             encoder = controls[CONF_ENCODER_BUTTON]
             cg.add(var.set_encoder_button(encoder[CONF_ROW], encoder[CONF_COLUMN]))
+        if CONF_MEMORY_BUTTON in controls:
+            memory = controls[CONF_MEMORY_BUTTON]
+            cg.add(var.set_memory_button(memory[CONF_ROW], memory[CONF_COLUMN]))
+    
+    # Note: Preset slot text sensors are created and registered in C++
+    # See radio_controller.cpp setup() method for sensor initialization
 
 
 @automation.register_condition("radio_controller.is_preset_active", automation.Condition, cv.Schema({
@@ -146,10 +155,10 @@ async def radio_controller_is_preset_active_to_code(config, condition_id, templa
     return cg.new_Pvariable(condition_id, template_arg, parent, config[CONF_NAME])
 
 
-# Text sensor platform
+# Text sensor platform  
 async def to_code_text_sensor(config):
     parent = await cg.get_variable(config[CONF_ID])
-    sens = await text_sensor.new_text_sensor(config)
+    sens = await text_sensor_component.new_text_sensor(config)
     cg.add(parent.set_preset_text_sensor(sens))
 
 

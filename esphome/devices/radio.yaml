@@ -164,6 +164,15 @@ api:
         - lambda: |-
             ESP_LOGI("playlist", "Received playlist data via service");
             id(controller).load_playlist_data(playlist_json);
+    
+    # Custom service to load all favorites (radios + playlists)
+    - service: load_all_favorites
+      variables:
+        favorites_json: string
+      then:
+        - lambda: |-
+            ESP_LOGI("favorites", "Received all favorites data via service");
+            id(controller).load_all_favorites(favorites_json);
 
 ota:
   - platform: esphome
@@ -264,6 +273,7 @@ radio_controller:
   
   controls:
     encoder_button: {row: 2, column: 1}
+    memory_button: {row: 2, column: 0}  # Hold 2sec to enter save preset mode
 
 # Binary sensors (required for tca8418_keypad component to compile)
 binary_sensor:
@@ -308,7 +318,7 @@ text_sensor:
   # Now playing from Home Assistant
   - platform: homeassistant
     id: now_playing
-    entity_id: sensor.radio_now_playing
+    entity_id: sensor.radio_now_playing_metadata
     on_value:
       then:
         # Sync preset LED when HA reports the current stream

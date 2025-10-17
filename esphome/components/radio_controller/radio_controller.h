@@ -3,6 +3,7 @@
 #include "esphome/core/component.h"
 #include "esphome/core/hal.h"
 #include "esphome/core/automation.h"
+#include "esphome/core/preferences.h"
 #include "esphome/components/tca8418_keypad/tca8418_keypad.h"
 #include "esphome/components/retrotext_display/retrotext_display.h"
 #include "esphome/components/api/custom_api_device.h"
@@ -36,9 +37,17 @@ struct Preset {
   std::map<std::string, std::string> data;  // Additional service data
 };
 
+// Persistent preset storage (saved to flash)
+struct StoredPreset {
+  char media_id[128];        // URI/ID for Music Assistant
+  char display_name[64];     // Human-readable name
+  bool is_valid;             // Flag for empty/corrupt slots
+  uint32_t last_played;      // Timestamp for recently played sorting
+};
+
 // New unified browse item structure
 struct BrowseItem {
-  enum Type { PRESET, PLAYLIST };
+  enum Type { PRESET, PLAYLIST, FAVORITE };
   Type type;
   std::string name;          // Display name
   std::string target;        // Media ID / URI
@@ -80,6 +89,20 @@ class RadioController : public Component {
   
   // Playlist browsing
   void load_playlist_data(const std::string &json_data);
+  
+  // All favorites browsing (unified radio + playlists)
+  void load_all_favorites(const std::string &json_data);
+  
+  // Preset storage management
+  void save_preset_to_slot(uint8_t slot, const std::string &media_id, const std::string &display_name);
+  StoredPreset get_preset(uint8_t slot);
+  void clear_preset_slot(uint8_t slot);
+  
+  // Memory button configuration
+  void set_memory_button(uint8_t row, uint8_t column);
+  
+  // Register auto-generated preset slot sensors
+  void register_preset_slot_sensor(uint8_t slot, text_sensor::TextSensor *sensor);
   
   // Accessors for state (for YAML lambdas)
   bool is_browse_mode_active() const { return browse_mode_active_; }
@@ -160,13 +183,34 @@ class RadioController : public Component {
   int32_t last_encoder_count_{0};    // Last processed count
   
   // Unified browse state
-  std::vector<BrowseItem> browse_items_;      // Unified list of presets + playlists
+  std::vector<BrowseItem> browse_items_;      // Unified list of presets + playlists + all favorites
   size_t browse_index_{0};                    // Current selection in browse mode
   bool browse_mode_active_{false};            // Is menu visible?
   uint32_t last_browse_interaction_{0};       // For 10s timeout
   int currently_playing_index_{-1};           // Index in browse_items_ of what's playing (-1 = none)
   bool is_playing_{false};                    // Play/stop state
   std::string now_playing_metadata_;          // Latest metadata from HA
+  
+  // Preset storage (flash persistence)
+  ESPPreferenceObject preset_prefs_[8];       // Preference objects for flash storage
+  StoredPreset stored_presets_[8];            // In-memory cache of stored presets
+  // Note: Individual preset sensors removed - use select component instead
+  
+  // All favorites cache (for browse mode)
+  std::vector<PlaylistItem> all_favorites_;   // Combined radios + playlists from MA
+  
+  // Memory button (for save preset mode)
+  bool has_memory_button_{false};
+  uint8_t memory_button_row_{0};
+  uint8_t memory_button_col_{0};
+  bool save_preset_mode_{false};
+  uint32_t memory_button_press_time_{0};
+  
+  // Helper methods for preset storage
+  void load_presets_from_flash_();
+  void save_preset_to_flash_(uint8_t slot);
+  void publish_preset_sensors_();
+  void update_preset_select_options_();
 };
 
 

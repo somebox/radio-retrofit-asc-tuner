@@ -37,6 +37,12 @@ void RadioController::setup() {
     }
   }
   
+  // Initialize preset storage from flash
+  this->load_presets_from_flash_();
+  
+  // Note: Preset slot sensors removed - caused API connection issues
+  // Preset data is accessible via select component and current_preset sensor
+  
   // Register callbacks with keypad
   this->keypad_->add_on_key_press_callback([this](uint8_t row, uint8_t col, uint8_t key) {
     this->handle_key_press_(row, col);
@@ -46,8 +52,11 @@ void RadioController::setup() {
     this->handle_key_release_(row, col);
   });
   
-  // Build initial browse list from presets
+  // Build initial browse list from stored presets
   build_browse_list_();
+  
+  // Publish preset sensors to HA
+  this->publish_preset_sensors_();
   
   ESP_LOGCONFIG(TAG, "Radio Controller initialized with %d presets", this->presets_.size());
 }
@@ -137,17 +146,57 @@ void RadioController::handle_key_press_(uint8_t row, uint8_t column) {
     }
   }
   
+  // Check if this is the memory button (if configured)
+  if (this->has_memory_button_ && row == this->memory_button_row_ && column == this->memory_button_col_) {
+    // Record press time for long-press detection
+    this->memory_button_press_time_ = millis();
+    return;
+  }
+  
   // Check if this is a preset button
   Preset *preset = this->find_preset_(row, column);
   if (preset != nullptr) {
     // Check if this is the Memory button (special playlist mode trigger)
+    // This handles old-style __PLAYLIST_MODE__ configuration
     if (preset->target == "__PLAYLIST_MODE__") {
       ESP_LOGI(TAG, "Memory button: toggle browse mode");
-      if (browse_mode_active_) {
-        this->exit_browse_mode_();
-      } else {
-        this->enter_browse_mode_();
+      this->memory_button_press_time_ = millis();  // Track for long-press
+      return;
+    }
+    
+    // If in save preset mode, save currently playing station to this preset slot
+    if (this->save_preset_mode_) {
+      ESP_LOGI(TAG, "Save preset mode: button pressed at row=%d, col=%d", row, column);
+      
+      // Find preset slot index
+      for (size_t i = 0; i < this->presets_.size(); i++) {
+        if (this->presets_[i].row == row && this->presets_[i].column == column) {
+          // Get currently playing media ID from active preset
+          if (this->current_preset_index_ < this->presets_.size()) {
+            const auto &current_preset = this->presets_[this->current_preset_index_];
+            
+            // Get the display name from now_playing metadata or current preset
+            std::string display_name = this->now_playing_metadata_.empty() ? 
+                                       current_preset.display_text : 
+                                       this->now_playing_metadata_;
+            
+            // Save to the selected slot
+            this->save_preset_to_slot(i, current_preset.target, display_name);
+            
+            // Activate this preset immediately (makes it the current active preset with LED)
+            this->activate_preset_(&this->presets_[i]);
+          } else {
+            ESP_LOGW(TAG, "No station currently playing");
+            if (this->display_) {
+              this->display_->set_text("NO STATION PLAYING");
+            }
+          }
+          this->save_preset_mode_ = false;
+          return;
+        }
       }
+      // If not a valid preset slot, cancel save mode
+      this->save_preset_mode_ = false;
       return;
     }
     
@@ -180,6 +229,37 @@ void RadioController::handle_key_release_(uint8_t row, uint8_t column) {
       this->process_encoder_rotation_();
       return;
     }
+  }
+  
+  // Check if this is memory button release - enter save preset mode
+  if (this->has_memory_button_ && row == this->memory_button_row_ && column == this->memory_button_col_) {
+    // Regular press enters save preset mode (saves currently playing station)
+    ESP_LOGI(TAG, "Memory button pressed: enter save preset mode");
+    if (this->current_preset_index_ >= this->presets_.size() || !this->is_playing_) {
+      ESP_LOGW(TAG, "No station currently playing - cannot save preset");
+      if (this->display_) {
+        this->display_->set_text("NO STATION PLAYING");
+      }
+    } else {
+      this->save_preset_mode_ = true;
+      if (this->display_) {
+        this->display_->set_text("SELECT PRESET");
+      }
+    }
+    return;
+  }
+  
+  // Check if this was the old-style __PLAYLIST_MODE__ button (for backward compatibility)
+  Preset *preset = this->find_preset_(row, column);
+  if (preset != nullptr && preset->target == "__PLAYLIST_MODE__") {
+    // Toggle browse mode
+    ESP_LOGI(TAG, "Old-style playlist mode button: toggle browse mode");
+    if (this->browse_mode_active_) {
+      this->exit_browse_mode_();
+    } else {
+      this->enter_browse_mode_();
+    }
+    return;
   }
   
   ESP_LOGV(TAG, "Key released: row=%d, col=%d", row, column);
@@ -662,23 +742,38 @@ void RadioController::load_playlist_data(const std::string &json_data) {
 void RadioController::build_browse_list_() {
   browse_items_.clear();
   
-  // Add all presets (except Memory button which is preset 8)
-  for (size_t i = 0; i < this->presets_.size(); i++) {
-    const auto &preset = this->presets_[i];
-    
-    // Skip the special playlist mode trigger
-    if (preset.target == "__PLAYLIST_MODE__") {
-      continue;
-    }
+  // Add all 8 preset slots (including empty ones)
+  for (uint8_t i = 0; i < 8; i++) {
+    const StoredPreset &stored = stored_presets_[i];
     
     BrowseItem item;
     item.type = BrowseItem::PRESET;
-    item.name = preset.display_text;
-    item.target = preset.target;
+    item.name = stored.display_name;
+    item.target = stored.is_valid ? stored.media_id : "";
     item.preset_index = i;
-    item.row = preset.row;
-    item.column = preset.column;
+    
+    // Find row/column from runtime presets if available
+    if (i < this->presets_.size()) {
+      item.row = this->presets_[i].row;
+      item.column = this->presets_[i].column;
+    } else {
+      item.row = 0;
+      item.column = 0;
+    }
+    
     browse_items_.push_back(item);
+  }
+  
+  // Add separator if we have additional content
+  if (!this->playlists_.empty() || !this->all_favorites_.empty()) {
+    BrowseItem separator;
+    separator.type = BrowseItem::PRESET;  // Use PRESET type for separators
+    separator.name = "--- ALL FAVORITES ---";
+    separator.target = "";
+    separator.preset_index = -1;
+    separator.row = 0;
+    separator.column = 0;
+    browse_items_.push_back(separator);
   }
   
   // Add all playlists
@@ -693,10 +788,22 @@ void RadioController::build_browse_list_() {
     browse_items_.push_back(item);
   }
   
-  ESP_LOGI(TAG, "Built browse list: %d items (%d presets, %d playlists)",
+  // Add all favorites (radios + additional playlists from MA)
+  for (const auto &fav : this->all_favorites_) {
+    BrowseItem item;
+    item.type = BrowseItem::FAVORITE;
+    item.name = fav.name;
+    item.target = fav.uri;
+    item.preset_index = -1;  // Not a preset slot
+    item.row = 0;
+    item.column = 0;
+    browse_items_.push_back(item);
+  }
+  
+  ESP_LOGI(TAG, "Built browse list: %d items (8 preset slots, %d playlists, %d favorites)",
            browse_items_.size(), 
-           this->presets_.size() - 1,  // -1 for Memory button
-           this->playlists_.size());
+           this->playlists_.size(),
+           this->all_favorites_.size());
 }
 
 void RadioController::enter_browse_mode_() {
@@ -944,6 +1051,16 @@ void RadioController::play_browse_item_(size_t index) {
   
   const auto &item = browse_items_[index];
   
+  // Check if this is an empty preset slot or separator
+  if (item.target.empty() || item.name.find("---") == 0) {
+    ESP_LOGW(TAG, "Cannot play empty or separator item: %s", item.name.c_str());
+    if (this->display_ != nullptr) {
+      this->display_->set_text("EMPTY SLOT");
+      // Stay in browse mode, don't exit
+    }
+    return;
+  }
+  
   ESP_LOGI(TAG, "Playing item: %s (target: %s)", item.name.c_str(), item.target.c_str());
   
   // Update state
@@ -1063,6 +1180,228 @@ void RadioController::set_playback_state(bool playing) {
       this->display_->set_text(display_text.c_str());
     }
   }
+}
+
+// ====================================================================================
+// Preset Storage Management (Flash Persistence)
+// ====================================================================================
+
+void RadioController::load_presets_from_flash_() {
+  ESP_LOGI(TAG, "Loading presets from flash...");
+  
+  for (uint8_t i = 0; i < 8; i++) {
+    // Create preference object for each slot
+    char pref_name[16];
+    snprintf(pref_name, sizeof(pref_name), "preset_%d", i);
+    uint32_t hash = fnv1_hash(pref_name);
+    preset_prefs_[i] = global_preferences->make_preference<StoredPreset>(hash);
+    
+    // Try to load from flash
+    if (preset_prefs_[i].load(&stored_presets_[i])) {
+      // Validate loaded data
+      if (stored_presets_[i].is_valid) {
+        ESP_LOGI(TAG, "Loaded preset %d: %s (%s)", i, 
+                 stored_presets_[i].display_name, 
+                 stored_presets_[i].media_id);
+        
+        // Update runtime preset list if we have old-style presets
+        if (i < presets_.size()) {
+          presets_[i].target = stored_presets_[i].media_id;
+          presets_[i].display_text = stored_presets_[i].display_name;
+        }
+      } else {
+        ESP_LOGD(TAG, "Preset slot %d is empty", i);
+        snprintf(stored_presets_[i].display_name, sizeof(stored_presets_[i].display_name), 
+                 "Empty Slot %d", i + 1);
+      }
+    } else {
+      // First boot or corrupted - initialize as empty
+      ESP_LOGW(TAG, "Preset slot %d not found in flash, initializing as empty", i);
+      stored_presets_[i].is_valid = false;
+      stored_presets_[i].media_id[0] = '\0';
+      snprintf(stored_presets_[i].display_name, sizeof(stored_presets_[i].display_name), 
+               "Empty Slot %d", i + 1);
+      stored_presets_[i].last_played = 0;
+    }
+  }
+}
+
+void RadioController::save_preset_to_slot(uint8_t slot, const std::string &media_id, 
+                                           const std::string &display_name) {
+  if (slot >= 8) {
+    ESP_LOGE(TAG, "Invalid preset slot: %d", slot);
+    return;
+  }
+  
+  ESP_LOGI(TAG, "Saving preset to slot %d: %s (%s)", slot, display_name.c_str(), media_id.c_str());
+  
+  StoredPreset &preset = stored_presets_[slot];
+  
+  // Update in-memory
+  strncpy(preset.media_id, media_id.c_str(), sizeof(preset.media_id) - 1);
+  preset.media_id[sizeof(preset.media_id) - 1] = '\0';
+  
+  strncpy(preset.display_name, display_name.c_str(), sizeof(preset.display_name) - 1);
+  preset.display_name[sizeof(preset.display_name) - 1] = '\0';
+  
+  preset.is_valid = true;
+  preset.last_played = millis();
+  
+  // Save to flash
+  this->save_preset_to_flash_(slot);
+  
+  // Update runtime preset list if it exists
+  if (slot < presets_.size()) {
+    presets_[slot].target = media_id;
+    presets_[slot].display_text = display_name;
+  }
+  
+  // Note: Individual preset slot sensors removed
+  // Preset saved successfully - will appear in select component
+  
+  // Rebuild browse list to reflect changes
+  this->build_browse_list_();
+  
+  // Update select options
+  this->update_preset_select_options_();
+  
+  // Show feedback on display
+  char msg[32];
+  snprintf(msg, sizeof(msg), "PRESET %d: SAVED", slot + 1);
+  if (this->display_) {
+    this->display_->set_text(msg);
+  }
+}
+
+void RadioController::save_preset_to_flash_(uint8_t slot) {
+  if (slot >= 8) return;
+  
+  if (preset_prefs_[slot].save(&stored_presets_[slot])) {
+    ESP_LOGD(TAG, "Preset %d saved to flash successfully", slot);
+  } else {
+    ESP_LOGE(TAG, "Failed to save preset %d to flash!", slot);
+  }
+}
+
+StoredPreset RadioController::get_preset(uint8_t slot) {
+  if (slot >= 8) {
+    StoredPreset empty = {0};
+    return empty;
+  }
+  return stored_presets_[slot];
+}
+
+void RadioController::clear_preset_slot(uint8_t slot) {
+  if (slot >= 8) return;
+  
+  ESP_LOGI(TAG, "Clearing preset slot %d", slot);
+  
+  StoredPreset &preset = stored_presets_[slot];
+  preset.is_valid = false;
+  preset.media_id[0] = '\0';
+  snprintf(preset.display_name, sizeof(preset.display_name), "Empty Slot %d", slot + 1);
+  preset.last_played = 0;
+  
+  // Save to flash
+  this->save_preset_to_flash_(slot);
+  
+  // Note: Individual preset slot sensors removed
+  // Cleared slot will show as empty in select component
+  
+  // Rebuild browse list
+  this->build_browse_list_();
+  
+  // Update select options
+  this->update_preset_select_options_();
+}
+
+void RadioController::publish_preset_sensors_() {
+  // Preset slot sensors removed - caused API connection issues
+  // Instead, presets are exposed via:
+  // 1. Select component (lists all 8 presets)
+  // 2. current_preset text sensor (shows currently selected)
+  // 3. Log messages show preset state
+  
+  for (uint8_t i = 0; i < 8; i++) {
+    if (stored_presets_[i].is_valid) {
+      ESP_LOGD(TAG, "Preset %d: %s", i + 1, stored_presets_[i].display_name);
+    } else {
+      ESP_LOGD(TAG, "Preset %d: Empty", i + 1);
+    }
+  }
+}
+
+void RadioController::update_preset_select_options_() {
+  if (!preset_select_) return;
+  
+  // Build list of options including empty slots
+  std::vector<std::string> options;
+  for (uint8_t i = 0; i < 8; i++) {
+    options.push_back(stored_presets_[i].display_name);
+  }
+  
+  // Update select traits
+  // Note: This will be handled by RadioControllerSelect class
+  ESP_LOGD(TAG, "Updated select options with %d presets", options.size());
+}
+
+void RadioController::register_preset_slot_sensor(uint8_t slot, text_sensor::TextSensor *sensor) {
+  // Method kept for API compatibility but no longer used
+  // Individual preset sensors caused API connection issues
+  ESP_LOGD(TAG, "Note: Preset slot sensors are disabled");
+}
+
+// ====================================================================================
+// Memory Button Configuration
+// ====================================================================================
+
+void RadioController::set_memory_button(uint8_t row, uint8_t column) {
+  this->has_memory_button_ = true;
+  this->memory_button_row_ = row;
+  this->memory_button_col_ = column;
+  ESP_LOGCONFIG(TAG, "Memory button configured at row=%d, col=%d", row, column);
+}
+
+// ====================================================================================
+// Browse All Favorites (Unified Radio + Playlists)
+// ====================================================================================
+
+void RadioController::load_all_favorites(const std::string &json_data) {
+  ESP_LOGI(TAG, "Loading all favorites from JSON...");
+  
+  // Parse JSON using ArduinoJson
+  JsonDocument doc;
+  DeserializationError error = deserializeJson(doc, json_data);
+  
+  if (error) {
+    ESP_LOGE(TAG, "Failed to parse all favorites JSON: %s", error.c_str());
+    return;
+  }
+  
+  // Clear existing favorites
+  all_favorites_.clear();
+  
+  // Parse items array
+  if (!doc.is<JsonArray>()) {
+    ESP_LOGE(TAG, "All favorites JSON is not an array");
+    return;
+  }
+  
+  JsonArray items = doc.as<JsonArray>();
+  for (JsonObject item : items) {
+    if (item["name"].is<const char*>() && item["uri"].is<const char*>()) {
+      PlaylistItem fav;
+      fav.name = item["name"].as<std::string>();
+      fav.uri = item["uri"].as<std::string>();
+      all_favorites_.push_back(fav);
+      ESP_LOGD(TAG, "Loaded favorite: %s", fav.name.c_str());
+    }
+  }
+  
+  ESP_LOGI(TAG, "Loaded %d favorites from Music Assistant", all_favorites_.size());
+  
+  // Rebuild browse list to include all favorites
+  this->build_browse_list_();
 }
 
 }  // namespace radio_controller

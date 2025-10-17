@@ -1,0 +1,96 @@
+# ============================================
+# CONFIGURATION - Setup Instructions
+# ============================================
+# 1. Create the config helper first (see config_helper.yaml)
+# 2. Set your media player entity ID in the helper
+# 3. Update ESPHome entity IDs below (marked with # UPDATE THIS:)
+#
+# The media player entity ID will be read from: input_select.radio_media_player_entity
+
+alias: Radio - Media Control
+description: Handles both play and stop based on media_id changes
+
+triggers:
+  # UPDATE THIS: Must match your ESPHome device name
+  - entity_id: sensor.retro_radio_current_media_id
+    trigger: state
+
+conditions:
+  - condition: template
+    value_template: "{{ trigger.to_state.state != trigger.from_state.state }}"
+
+actions:
+  - choose:
+      # STOP sequence: Empty media_id means stop
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger.to_state.state == '' }}"
+        sequence:
+          - action: media_player.media_stop
+            target:
+              entity_id: "{{ states('input_select.radio_media_player_entity') }}"
+          
+          # UPDATE THIS: Stream state entity (based on ESPHome device name)
+          - action: text.set_value
+            target:
+              entity_id: text.retro_radio_stream_state
+            data:
+              value: stopped
+
+      # PLAY sequence: Valid media_id means play
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger.to_state.state not in ['', 'unknown', 'unavailable'] }}"
+        sequence:
+          # UPDATE THIS: Stream state entity (based on ESPHome device name)
+          - action: text.set_value
+            target:
+              entity_id: text.retro_radio_stream_state
+            data:
+              value: loading
+          
+          - choose:
+              # Playlist mode: enable shuffle
+              - conditions:
+                  # UPDATE THIS: Radio mode sensor (based on ESPHome device name)
+                  - condition: state
+                    entity_id: sensor.retro_radio_radio_mode
+                    state: playlists
+                sequence:
+                  - action: media_player.shuffle_set
+                    data:
+                      shuffle: true
+                    target:
+                      entity_id: "{{ states('input_select.radio_media_player_entity') }}"
+                  - action: music_assistant.play_media
+                    target:
+                      entity_id: "{{ states('input_select.radio_media_player_entity') }}"
+                    data:
+                      media_id: "{{ trigger.to_state.state }}"
+                      media_type: playlist
+                      enqueue: replace
+                      radio_mode: false
+            
+            # Preset mode: play radio station
+            default:
+              - action: music_assistant.play_media
+                target:
+                  entity_id: "{{ states('input_select.radio_media_player_entity') }}"
+                data:
+                  media_id: "{{ trigger.to_state.state }}"
+                  radio_mode: false
+          
+          # Wait for playback to start (max 10 seconds)
+          - wait_template: >
+              {{ state_attr(states('input_select.radio_media_player_entity'), 'media_position') | float(0) > 0 }}
+            timeout: "00:00:10"
+            continue_on_timeout: true
+          
+          # UPDATE THIS: Stream state entity (based on ESPHome device name)
+          - action: text.set_value
+            target:
+              entity_id: text.retro_radio_stream_state
+            data:
+              value: playing
+
+mode: restart

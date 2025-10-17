@@ -1,0 +1,89 @@
+# ============================================
+# CONFIGURATION - Setup Instructions
+# ============================================
+# 1. Create the config helper first (see config_helper.yaml)
+# 2. Set your media player entity ID in the helper
+#
+# The media player entity ID will be read from: input_select.radio_media_player_entity
+#
+# This template sensor extracts metadata from your media player and sends it
+# to the ESPHome device for display on the RetroText display.
+#
+# Setup in Home Assistant:
+#   Settings → Devices & Services → Helpers → Create Helper
+#   → Template → Template a sensor
+#
+# OR add to configuration.yaml under 'template:' section
+
+# ============================================
+# Template Sensor Configuration (for YAML config)
+# ============================================
+# Copy this block to your configuration.yaml under the 'template:' section:
+#
+# template:
+#   - sensor:
+#       - name: "Radio Now Playing"
+#         unique_id: radio_now_playing_metadata
+#         state: |
+#           {% set player = states('input_select.radio_media_player_entity') %}
+#           {% if is_state(player, 'playing') %}
+#             {% set title = state_attr(player, 'media_title') | default('') %}
+#             {% set artist = state_attr(player, 'media_artist') | default('') %}
+#             {% set album = state_attr(player, 'media_album_name') | default('') %}
+#             
+#             {% set parts = [] %}
+#             {% if title %}{% set parts = parts + [title] %}{% endif %}
+#             {% if artist and artist != title %}{% set parts = parts + [artist] %}{% endif %}
+#             {% if album and album != title and album != artist %}{% set parts = parts + [album] %}{% endif %}
+#             
+#             {{ parts | join(' - ') if parts else title if title else 'Playing' }}
+#           {% else %}
+#             Ready
+#           {% endif %}
+#         icon: >-
+#           {% set player = states('input_select.radio_media_player_entity') %}
+#           {% if is_state(player, 'playing') %}
+#             mdi:music-note
+#           {% else %}
+#             mdi:radio-tower
+#           {% endif %}
+
+# ============================================
+# UI Helper Configuration (for GUI setup)
+# ============================================
+# Use these values when creating via Settings → Helpers:
+
+Name: Radio Now Playing
+Unique ID: radio_now_playing_metadata
+
+State Template: |
+  {% set player = states('input_select.radio_media_player_entity') %}
+  {% if is_state(player, 'playing') %}
+    {% set title = state_attr(player, 'media_title') | default('') %}
+    {% set artist = state_attr(player, 'media_artist') | default('') %}
+    {% set album = state_attr(player, 'media_album_name') | default('') %}
+    
+    {% set parts = [] %}
+    {% if title %}{% set parts = parts + [title] %}{% endif %}
+    {% if artist and artist != title %}{% set parts = parts + [artist] %}{% endif %}
+    {% if album and album != title and album != artist %}{% set parts = parts + [album] %}{% endif %}
+    
+    {{ parts | join(' - ') if parts else title if title else 'Playing' }}
+  {% else %}
+    Ready
+  {% endif %}
+
+Icon Template: |
+  {% set player = states('input_select.radio_media_player_entity') %}
+  {% if is_state(player, 'playing') %}
+    mdi:music-note
+  {% else %}
+    mdi:radio-tower
+  {% endif %}
+
+# ============================================
+# Example Output
+# ============================================
+# When playing: "Radio Meuh - Album Name - Artist Name"
+# When stopped: "Ready"
+# Long text automatically scrolls on the 18-character display

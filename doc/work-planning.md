@@ -56,7 +56,39 @@
 - Outdated refactor docs moved to `doc/legacy/`
 - Component READMEs created
 
+### ✅ Metadata Display
+- C++ implementation complete in `radio_controller`
+- Auto-scrolling for long text on 18-char display
+- Smart display logic: metadata when playing, station name otherwise
+- HA template sensor configuration provided
+- Automations refactored with clear configuration sections
+- Full setup guide in `esphome/automations/README.md`
+
+### ✅ Preset Storage & Saving
+- Flash-based preset storage (ESP32 Preferences API)
+- 8 preset slots with persistent memory
+- Memory button long-press (2 sec) enters save mode
+- Save any favorite to any preset button
+- Empty slot handling with user feedback
+- Auto-generated preset sensors expose to HA
+- Unified browse: 8 presets + all MA favorites
+
 ## Active Development
+
+### Firmware Flash & Testing
+- Flash updated firmware with new preset storage system
+- Test Memory button long-press (2 sec hold)
+- Browse favorites with encoder
+- Save station to preset slot
+- Verify presets persist across power cycles
+- Test empty slot warning message
+
+### Home Assistant Setup
+- Create template sensor for metadata extraction
+- Import 4 automations (media control, playlists, all favorites, config helper)
+- Update entity IDs to match your media player
+- Trigger load_all_favorites automation to populate browse list
+- Test metadata display on device
 
 ### User Testing
 - Flash updated firmware to device
@@ -64,20 +96,11 @@
 - Verify encoder scrolling (1 click = 1 item)
 - Verify auto-play on boot
 - Verify LED brightness states
+- Verify metadata display and auto-scroll
+- Test save preset workflow
 - Report any issues
 
 ## Future Enhancements
-
-### Preset Saving (Deferred)
-**Goal**: Memory+Preset hold to save current station
-
-**Approach**:
-- Add long-press detection to Memory button
-- While holding, preset button saves current `media_id`
-- Store in flash via ESPHome globals
-- Update preset configuration dynamically
-
-**Complexity**: Medium (button timing, persistent storage)
 
 ### YAML Refactor (Optional)
 **Goal**: Reduce `radio.yaml` from 394 lines to ~200 lines

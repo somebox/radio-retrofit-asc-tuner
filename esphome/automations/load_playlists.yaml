@@ -1,0 +1,48 @@
+# ============================================
+# CONFIGURATION - Setup Instructions
+# ============================================
+# 1. Find your Music Assistant config entry ID (see instructions below)
+# 2. Update config_entry_id in the variables section below
+# 3. Update ESPHome entity IDs if your device name differs from "retro_radio"
+#
+# To find your Music Assistant config entry ID:
+#   Settings → Devices & Services → Music Assistant
+#   → Click (⋮) three dots → Download Diagnostics
+#   → Open the JSON file and find "entry_id"
+
+alias: Radio - Load Playlists
+description: Fetch playlists from Music Assistant when entering playlist mode
+variables:
+  # UPDATE THIS: Your Music Assistant config entry ID
+  music_assistant_config_id: 01K65E8GMGHZXQTFAH6ZJ7TDGY
+
+triggers:
+  # UPDATE THIS: Must match your ESPHome device name
+  - entity_id: sensor.retro_radio_radio_mode
+    to: playlists
+    trigger: state
+
+conditions: []
+
+actions:
+  # Fetch playlists from Music Assistant
+  - data:
+      config_entry_id: "{{ music_assistant_config_id }}"
+      media_type: playlist
+      limit: 50
+      order_by: last_played
+    response_variable: playlist_data
+    action: music_assistant.get_library
+  
+  # Transform and send to ESPHome
+  # UPDATE THIS: Service name must match your ESPHome device name
+  - data:
+      playlist_json: >-
+        {%- set ns = namespace(items=[]) -%}
+        {%- for item in playlist_data['items'] -%}
+          {%- set ns.items = ns.items + [{'name': item.name, 'uri': item.uri}] -%}
+        {%- endfor -%}
+        {{ ns.items | tojson }}
+    action: esphome.retro_radio_load_playlists
+
+mode: restart

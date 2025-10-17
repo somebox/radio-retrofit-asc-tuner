@@ -1,0 +1,68 @@
+# ============================================
+# CONFIGURATION - Update these values for your setup
+# ============================================
+# IMPORTANT: Update the Music Assistant config entry ID
+#
+# To find your Music Assistant config entry ID:
+#   Settings → Devices & Services → Music Assistant
+#   → Click (⋮) three dots → Download Diagnostics
+#   → Open the JSON file and find "entry_id"
+
+alias: Radio - Load All Favorites
+description: Fetch radios and playlists from Music Assistant for unified browsing
+
+variables:
+  # UPDATE THIS: Your Music Assistant config entry ID
+  music_assistant_config_id: 01K65E8GMGHZXQTFAH6ZJ7TDGY
+  
+  # Set to true to load only favorited items, false to load all
+  favorites_only: false
+
+triggers:
+  # Load favorites on Home Assistant start
+  - platform: homeassistant
+    event: start
+  
+  # Reload when requested (can be triggered manually or by ESPHome)
+  - platform: event
+    event_type: esphome_radio_reload_favorites
+
+conditions: []
+
+actions:
+  # Fetch radio stations (favorited or all)
+  - action: music_assistant.get_library
+    data:
+      config_entry_id: "{{ music_assistant_config_id }}"
+      media_type: radio
+      favorite: "{{ favorites_only }}"
+      limit: 100
+      order_by: name
+    response_variable: radios
+  
+  # Fetch playlists (favorited or all)
+  - action: music_assistant.get_library
+    data:
+      config_entry_id: "{{ music_assistant_config_id }}"
+      media_type: playlist
+      favorite: "{{ favorites_only }}"
+      limit: 100
+      order_by: name
+    response_variable: playlists
+  
+  # Combine radios and playlists into unified list
+  # Transform to simple format: [{name: "...", uri: "..."}]
+  - action: esphome.retro_radio_load_all_favorites
+    data:
+      favorites_json: >
+        {%- set ns = namespace(items=[]) -%}
+        {%- for radio in radios['items'] -%}
+          {%- set ns.items = ns.items + [{'name': radio.name, 'uri': radio.uri}] -%}
+        {%- endfor -%}
+        {%- for playlist in playlists['items'] -%}
+          {%- set ns.items = ns.items + [{'name': playlist.name, 'uri': playlist.uri}] -%}
+        {%- endfor -%}
+        {{ ns.items | tojson }}
+
+mode: restart
+
