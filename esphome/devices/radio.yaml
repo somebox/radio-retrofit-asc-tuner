@@ -33,64 +33,26 @@ globals:
     restore_value: yes
     initial_value: '""'
 
-# Intervals for animations and clock
+# Intervals for clock mode
 interval:
-  # Spinner animation for loading state
-  - interval: 500ms
-    then:
-      - lambda: |-
-          static int spinner_pos = 0;
-          static const char spinner_chars[] = "/-\\|";
-          
-          // Only show spinner if loading
-          if (id(stream_state).state == "loading") {
-            // Show station name + spinner while connecting
-            std::string station = id(station_name).state;
-            if (station.empty()) {
-              station = "Connecting";
-            }
-            
-            // Add play icon (glyph 128) at the start
-            std::string display_text;
-            display_text += (char)128;  // Play icon
-            display_text += ' ';  // Space after icon
-            
-            // Truncate station name to fit (18 chars total - 2 for icon/space - 1 for spinner = 15 chars max)
-            if (station.length() > 15) {
-              station = station.substr(0, 15);
-            }
-            display_text += station;
-            
-            // Pad and add spinner at the end
-            display_text += std::string(15 - station.length(), ' ');
-            display_text += spinner_chars[spinner_pos];
-            
-            id(display).set_text(display_text.c_str());
-            spinner_pos = (spinner_pos + 1) % 4;
-          }
-  
   # Clock mode checker and updater
   - interval: 1s
     then:
       - lambda: |-
-          // Enter clock mode when stopped and not in playlist mode
-          // Check multiple conditions since stream_state may not always be updated
-          bool in_playlist_mode = (id(radio_mode).state == "playlists");
-          bool stream_stopped = (id(stream_state).state == "stopped" || 
-                                 id(stream_state).state == "ready");
-          bool no_media = id(current_media_id).state.empty();
-          bool truly_stopped = (stream_stopped || no_media) && !in_playlist_mode;
+          // Enter clock mode when stopped (not playing and not browsing)
+          bool is_playing = id(controller).is_playing();
           bool user_browsing = id(controller).is_browse_mode_active();
+          bool truly_stopped = !is_playing && !user_browsing;
           
-          // Reset clock timer if user is browsing
-          if (user_browsing && id(clock_mode_active)) {
-            ESP_LOGI("clock", "Exiting clock mode due to user browsing");
+          // Reset clock timer if user is browsing or playing
+          if ((user_browsing || is_playing) && id(clock_mode_active)) {
+            ESP_LOGI("clock", "Exiting clock mode due to %s", is_playing ? "playback" : "user browsing");
             id(clock_mode_active) = false;
             id(display).set_brightness(id(normal_brightness));
             id(stopped_time) = 0;  // Reset timer
           }
           
-          if (truly_stopped && !user_browsing) {
+          if (truly_stopped) {
             // Initialize stopped_time if this is the first check
             if (id(stopped_time) == 0) {
               id(stopped_time) = millis();
@@ -155,6 +117,14 @@ logger:
   level: DEBUG
 
 api:
+  # Request favorites sync after API connection established
+  on_client_connected:
+    - delay: 2s  # Wait for HA event system to be fully ready
+    - homeassistant.event:
+        event: esphome.retro_radio_sync_favorites
+    - lambda: |-
+        ESP_LOGI("boot", "Requested favorites sync from Home Assistant");
+  
   services:
     # Custom service to load playlist data (bypasses 255 char text limit)
     - service: load_playlists
@@ -179,7 +149,7 @@ api:
       then:
         - lambda: |-
             ESP_LOGI("presets", "Clearing all saved presets from flash");
-            for (uint8_t i = 0; i < 8; i++) {
+            for (uint8_t i = 0; i < 7; i++) {
               id(controller).clear_preset_slot(i);
             }
             ESP_LOGI("presets", "Saved presets cleared - rebooting to restore YAML config");
@@ -199,6 +169,11 @@ wifi:
   on_connect:
     - delay: 500ms
     - lambda: |-
+        ESP_LOGI("boot", "WiFi connected, preparing to sync favorites");
+        
+        // Disable shimmer effect now that we're connected
+        id(display).set_shimmer_mode(false);
+        
         // Auto-play last preset if available
         if (!id(last_preset_name).empty()) {
           ESP_LOGI("boot", "Auto-playing last preset: %s", id(last_preset_name).c_str());
@@ -261,7 +236,7 @@ radio_controller:
     
     - button: {row: 3, column: 1}
       display: "France Musique Hi-fi"
-      target: "France Musique Hi-fi"
+      target: "radiobrowser://radio/5e992e1e-e6ef-11e9-a96c-52543be04c81"
     
     - button: {row: 3, column: 0}
       display: "Radio Meuh FR"
@@ -277,15 +252,11 @@ radio_controller:
     
     - button: {row: 3, column: 6}
       display: "WTUL Tulane"
-      target: "WTUL New Orleans"
-    
-    - button: {row: 3, column: 5}
-      display: "BROWSE PLAYLISTS"
-      target: "__PLAYLIST_MODE__"
+      target: "WTUL"
   
   controls:
     encoder_button: {row: 2, column: 1}
-    memory_button: {row: 2, column: 0}  # Hold 2sec to enter save preset mode
+    memory_button: {row: 3, column: 5}  # Tap to enter save mode, tap again to cancel
 
 # Binary sensors (required for tca8418_keypad component to compile)
 binary_sensor:
@@ -306,8 +277,6 @@ text_sensor:
     icon: mdi:radio
     on_value:
       then:
-        # Store station name for use during loading
-        - lambda: 'id(station_name).publish_state(x);'
         # Save as last preset for auto-play on boot
         - lambda: |-
             if (!x.empty() && x != "BROWSE PLAYLISTS") {
@@ -341,23 +310,32 @@ text_sensor:
             id(controller).set_now_playing_metadata(x);
             
             // If we receive now_playing and stream_state is still loading, update it to playing
-            // This fixes the spinner not clearing issue
             if (id(stream_state).state == "loading" && !x.empty()) {
-              ESP_LOGI("now_playing", "Fixing stuck loading state - updating to playing");
+              ESP_LOGI("now_playing", "Stream loaded - updating to playing");
               id(stream_state).publish_state("playing");
             }
             
-            // Exit clock mode if we have valid media
-            if (!id(current_media_id).state.empty()) {
+            // Exit clock mode if we have valid media or playing from HA
+            bool has_media = !id(current_media_id).state.empty();
+            bool is_playing_from_ha = (x != "Ready" && x != "Stopped" && x != "ready" && 
+                                      x != "stopped" && !x.empty());
+            
+            if (has_media || is_playing_from_ha) {
               if (id(clock_mode_active)) {
                 ESP_LOGI("clock", "Exiting clock mode due to active media");
                 id(clock_mode_active) = false;
                 id(display).set_brightness(id(normal_brightness));
               }
               
-              // Sync LED using the stored media_id (always use this, not now_playing text)
-              ESP_LOGI("now_playing", "Syncing LED with media_id: %s", id(current_media_id).state.c_str());
-              id(controller).sync_preset_led_from_target(id(current_media_id).state);
+              // Try to sync LED using media_id first (from device-initiated playback)
+              if (has_media) {
+                ESP_LOGI("now_playing", "Syncing LED with media_id: %s", id(current_media_id).state.c_str());
+                id(controller).sync_preset_led_from_target(id(current_media_id).state);
+              } else {
+                // Fallback: sync by station name (from HA-initiated playback)
+                ESP_LOGI("now_playing", "Syncing LED with station name: %s", x.c_str());
+                id(controller).sync_preset_led_from_name(x);
+              }
             }
   
   # Store the target media player entity ID for volume control
@@ -390,9 +368,17 @@ text:
             // Update radio controller with playback state
             if (x == "playing") {
               id(controller).set_playback_state(true);
+              // Disable shimmer when playing starts
+              id(display).set_shimmer_mode(false);
+            } else if (x == "loading") {
+              // Enable shimmer effect during loading
+              id(display).set_shimmer_mode(true);
             } else if (x == "stopped") {
               id(controller).set_playback_state(false);
               // Controller will handle display with stop icon
+              
+              // Disable shimmer when stopped
+              id(display).set_shimmer_mode(false);
               
               // Reset stopped timer to start counting for clock mode
               id(stopped_time) = 0;
@@ -402,19 +388,8 @@ text:
             } else if (x == "ready") {
               // On boot with "ready" state, show stopped state properly
               id(controller).set_playback_state(false);
+              id(display).set_shimmer_mode(false);
             }
-            // "loading" state will show station name + spinner in interval
-  
-  - platform: template
-    name: "Station Name"
-    id: station_name
-    optimistic: true
-    initial_value: ""
-    mode: text
-    internal: true  # Hidden from HA UI
-  
-  # Station Name (internal, used for loading spinner)
-  # Note: Playlist data is loaded via custom service below
 
 # Sensors
 sensor:

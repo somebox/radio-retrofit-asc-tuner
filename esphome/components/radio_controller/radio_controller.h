@@ -51,7 +51,7 @@ struct BrowseItem {
   Type type;
   std::string name;          // Display name
   std::string target;        // Media ID / URI
-  int preset_index;          // -1 if not a preset, 0-7 for presets
+  int preset_index;          // -1 if not a preset, 0-6 for presets (7 total)
   uint8_t row;              // For presets, original button position
   uint8_t column;
 };
@@ -86,6 +86,7 @@ class RadioController : public Component {
   // Metadata and playback state
   void set_now_playing_metadata(const std::string &metadata);
   void set_playback_state(bool playing);
+  bool is_playing() const { return is_playing_; }
   
   // Playlist browsing
   void load_playlist_data(const std::string &json_data);
@@ -190,10 +191,12 @@ class RadioController : public Component {
   int currently_playing_index_{-1};           // Index in browse_items_ of what's playing (-1 = none)
   bool is_playing_{false};                    // Play/stop state
   std::string now_playing_metadata_;          // Latest metadata from HA
+  uint32_t preset_activation_time_{0};        // Time when preset was activated (for display delay)
+  uint32_t preset_saved_message_time_{0};     // Time when "Preset X: Saved" was shown (for auto-dismiss)
   
   // Preset storage (flash persistence)
-  ESPPreferenceObject preset_prefs_[8];       // Preference objects for flash storage
-  StoredPreset stored_presets_[8];            // In-memory cache of stored presets
+  ESPPreferenceObject preset_prefs_[7];       // Preference objects for flash storage (7 presets)
+  StoredPreset stored_presets_[7];            // In-memory cache of stored presets (7 presets)
   // Note: Individual preset sensors removed - use select component instead
   
   // All favorites cache (for browse mode)

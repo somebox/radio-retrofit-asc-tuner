@@ -52,19 +52,10 @@ Handles play/stop commands when you press preset buttons or the encoder button.
 - Settings → Automations → Create Automation → Edit in YAML
 - Paste the content from the file
 
-### 3. Automation: `Radio - Load Playlists`
-**File:** [`load_playlists.yaml`](load_playlists.yaml)
-
-Fetches playlists from Music Assistant when you enter playlist browse mode.
-
-**Setup:**
-- Settings → Automations → Create Automation → Edit in YAML
-- Paste the content from the file
-
-### 4. Automation: `Radio - Load All Favorites`
+### 3. Automation: `Radio - Load All Favorites`
 **File:** [`load_all_favorites.yaml`](load_all_favorites.yaml)
 
-Fetches ALL favorited radios and playlists from Music Assistant for unified browsing and saving to presets.
+Fetches ALL favorited radios and playlists from Music Assistant for browsing and saving to the 7 preset slots.
 
 **Setup:**
 - Settings → Automations → Create Automation → Edit in YAML
@@ -99,13 +90,11 @@ This creates `input_select.radio_media_player_entity` which all automations will
 
 ### Step 3: Find Your Music Assistant Config Entry ID
 
-**Only needed if using playlists:**
-
 1. Open **Settings → Devices & Services → Music Assistant**
 2. Click the three dots (⋮) → **Download Diagnostics**
 3. Open the downloaded JSON file
 4. Find the `"entry_id"` value (e.g., `"01K65E8GMGHZXQTFAH6ZJ7TDGY"`)
-5. Update this value in `load_playlists.yaml` → `music_assistant_config_id` variable
+5. Update this value in `load_all_favorites.yaml` → `music_assistant_config_id` variable
 
 ### Step 4: Update ESPHome Entity Names (if needed)
 
@@ -119,7 +108,7 @@ ESPHome automatically creates entities based on your device name in `radio.yaml`
 
 **If your ESPHome device has a different name**, update the entity IDs marked with `# UPDATE THIS:` in:
 - `media_control.yaml` → trigger and text entities
-- `load_playlists.yaml` → trigger entity and service name
+- `load_all_favorites.yaml` → service name
 
 ### Benefits of the Helper Approach
 
@@ -145,10 +134,10 @@ After importing the automations and template sensor:
    - While playing, the display should show the station/track info
    - Long text should auto-scroll on the 18-character display
 
-4. **Test playlist mode:**
-   - Press the "BROWSE PLAYLISTS" button
-   - Check ESPHome logs for "Received playlist data"
-   - Encoder should scroll through playlists
+4. **Test browse mode:**
+   - Press the Memory button to enter Browse Mode
+   - Encoder should scroll through all favorites
+   - Press encoder to play selected item
 
 ## Troubleshooting
 
@@ -162,10 +151,12 @@ After importing the automations and template sensor:
 - Check Home Assistant automation traces (Settings → Automations → Click automation → Traces)
 - Check ESPHome logs for media_id changes
 
-### Playlists not loading
-- Verify Music Assistant config entry ID in `load_playlists.yaml`
+### Favorites not loading
+- Verify Music Assistant config entry ID in `load_all_favorites.yaml`
+- Check ESPHome logs for "Requested favorites sync" on boot
 - Check that Music Assistant integration is properly configured
-- Check Home Assistant automation traces for errors
+- Check Home Assistant automation traces for the `esphome.retro_radio_sync_favorites` event
+- Manually trigger: Developer Tools → Events → Fire Event → `esphome.retro_radio_sync_favorites`
 
 ### Wrong entity names
 - Check your ESPHome device name in `radio.yaml` (line 7: `name:`)

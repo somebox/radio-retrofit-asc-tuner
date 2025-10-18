@@ -8,8 +8,10 @@
 - **LED**: Lit brightly when playing that preset
 
 ### Memory Button (8)
-- **Tap**: Enter preset save mode, tap again to exit. When in save mode, pressing a preset button will save the current station to that preset and select it.
-- **LED**: Lit when preset save mode is active
+- **Tap once**: Enter preset save mode, display shows "SELECT PRESET"
+- **Tap again**: Exit save mode without saving
+- **In save mode, press preset 1-7**: Save current station to that preset, display shows "PRESET X: SAVED"
+- **LED**: Lit brightly when save mode active or browsing; lit dimly when playing a non-preset station
 
 ### Rotary Encoder
 - **Rotate**: Scroll through all Music Assistant playlists (1 click = 1 item). 
@@ -32,7 +34,8 @@
 
 **Stopped:**
 - Shows station name (static, no scroll) with stop icon
-- Preset LED is off
+- Selected preset LED remains lit brightly (same as when playing)
+- Memory button LED is lit dimly if stopped on a non-preset station
 - Clock mode activates after 10 seconds of inactivity
 
 **Browse Mode:**

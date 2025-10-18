@@ -29,11 +29,22 @@ void RetroTextDisplay::setup() {
   
   ESP_LOGCONFIG(TAG, "RetroText Display initialized successfully");
   
-  // Display startup message
+  // Display startup message with shimmer effect
   this->set_text("CONNECTING...");
+  this->set_shimmer_mode(true);
 }
 
 void RetroTextDisplay::loop() {
+  // Update shimmer animation phase
+  if (this->shimmer_enabled_) {
+    this->shimmer_phase_ += 0.15f;  // Animation speed
+    if (this->shimmer_phase_ >= 6.28318530718f) {  // 2*PI
+      this->shimmer_phase_ -= 6.28318530718f;
+    }
+    // Force display update when shimmering
+    this->update_display_();
+  }
+  
   // Render text if it changed
   if (this->text_dirty_) {
     this->render_text_();
@@ -205,6 +216,18 @@ void RetroTextDisplay::clear() {
   ESP_LOGD(TAG, "Display cleared");
 }
 
+void RetroTextDisplay::set_shimmer_mode(bool enabled) {
+  this->shimmer_enabled_ = enabled;
+  if (enabled) {
+    this->shimmer_phase_ = 0.0f;  // Reset phase
+    ESP_LOGD(TAG, "Shimmer mode enabled");
+  } else {
+    ESP_LOGD(TAG, "Shimmer mode disabled");
+    // Force one final update with normal brightness
+    this->update_display_();
+  }
+}
+
 bool RetroTextDisplay::initialize_boards_() {
   ESP_LOGD(TAG, "Initializing IS31FL3737 boards...");
   
@@ -323,6 +346,22 @@ void RetroTextDisplay::update_display_() {
     for (int x = 0; x < 72; x++) {
       int buffer_index = y * 72 + x;
       uint8_t pixel_brightness = this->buffer_[buffer_index];
+      
+      // Apply shimmer effect if enabled
+      if (this->shimmer_enabled_ && pixel_brightness > 0) {
+        // Calculate wave position: sine wave moving from left to right
+        // with vertical offset to create angled wave effect
+        float wave_position = (float)x / 72.0f * 12.56637061436f;  // 2 full periods across display
+        float vertical_offset = (float)y * 0.523598775598f;  // PI/6 offset per row for angle
+        float wave = sinf(wave_position + vertical_offset - this->shimmer_phase_);
+        
+        // Modulate brightness: 0.6 to 1.4 multiplier (keeps pixels visible but creates wave)
+        float brightness_mult = 1.0f + (wave * 0.4f);
+        pixel_brightness = (uint8_t)(pixel_brightness * brightness_mult);
+        
+        // Clamp to valid range
+        if (pixel_brightness > 255) pixel_brightness = 255;
+      }
       
       // Write ALL pixels (including zeros) to properly clear the display
       

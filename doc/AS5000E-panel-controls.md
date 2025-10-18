@@ -46,11 +46,12 @@ All pin assignments defined in `include/hardware/HardwareConfig.h`.
 - Presets 1-7: Cols 3,2,1,0,8,7,6
 - Memory: Col 5
 - Note: Col 4 physically skipped (PCB gap)
+- Note: Ghost key releases detected on adjacent columns (TCA8418 scanning artifact)
 
 **Rotary Encoder** (Row 2):
 - Channel A: Col 3
 - Channel B: Col 4  
-- Push Button: Col 2
+- Push Button: Col 1
 
 **Mode Selector** (Row 2):
 - Positions: Cols 0-3 (Stereo, Stereo-Far, Q, Mono)

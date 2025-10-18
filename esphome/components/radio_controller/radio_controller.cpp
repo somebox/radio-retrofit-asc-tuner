@@ -73,6 +73,35 @@ void RadioController::loop() {
       this->exit_browse_mode_();
     }
   }
+  
+  // Auto-dismiss "Preset X: Saved" message after 2 seconds
+  if (this->preset_saved_message_time_ > 0) {
+    uint32_t elapsed = millis() - this->preset_saved_message_time_;
+    if (elapsed > 2000) {  // 2 second delay
+      this->preset_saved_message_time_ = 0;  // Clear timer
+      
+      // Restore now-playing display
+      if (this->is_playing_ && !this->browse_mode_active_) {
+        if (this->currently_playing_index_ >= 0 && 
+            this->currently_playing_index_ < (int)this->browse_items_.size()) {
+          // Show station name or metadata
+          std::string display_text;
+          if (!this->now_playing_metadata_.empty() && 
+              this->now_playing_metadata_ != "Ready" && 
+              this->now_playing_metadata_ != "Stopped") {
+            display_text = this->format_display_text_(this->now_playing_metadata_);
+          } else {
+            display_text = this->format_display_text_(this->browse_items_[this->currently_playing_index_].name);
+          }
+          
+          if (this->display_) {
+            this->display_->set_text(display_text.c_str());
+            ESP_LOGD(TAG, "Auto-dismissed 'Preset Saved' message, restored: '%s'", display_text.c_str());
+          }
+        }
+      }
+    }
+  }
 }
 
 void RadioController::dump_config() {
@@ -156,39 +185,38 @@ void RadioController::handle_key_press_(uint8_t row, uint8_t column) {
   // Check if this is a preset button
   Preset *preset = this->find_preset_(row, column);
   if (preset != nullptr) {
-    // Check if this is the Memory button (special playlist mode trigger)
-    // This handles old-style __PLAYLIST_MODE__ configuration
-    if (preset->target == "__PLAYLIST_MODE__") {
-      ESP_LOGI(TAG, "Memory button: toggle browse mode");
-      this->memory_button_press_time_ = millis();  // Track for long-press
-      return;
-    }
-    
     // If in save preset mode, save currently playing station to this preset slot
     if (this->save_preset_mode_) {
-      ESP_LOGI(TAG, "Save preset mode: button pressed at row=%d, col=%d", row, column);
+      ESP_LOGI(TAG, "SAVE MODE: Preset button pressed at row=%d, col=%d", row, column);
       
       // Find preset slot index
       for (size_t i = 0; i < this->presets_.size(); i++) {
         if (this->presets_[i].row == row && this->presets_[i].column == column) {
-          // Get currently playing media ID from active preset
-          if (this->current_preset_index_ < this->presets_.size()) {
-            const auto &current_preset = this->presets_[this->current_preset_index_];
+          // Get currently playing item from browse list (works for presets, playlists, and favorites)
+          if (currently_playing_index_ >= 0 && currently_playing_index_ < (int)browse_items_.size()) {
+            const auto &playing_item = browse_items_[currently_playing_index_];
             
-            // Get the display name from now_playing metadata or current preset
-            std::string display_name = this->now_playing_metadata_.empty() ? 
-                                       current_preset.display_text : 
-                                       this->now_playing_metadata_;
+            // Use the item's name and target (preserves playlist URI, not track metadata)
+            ESP_LOGI(TAG, "SAVE MODE: Saving '%s' (target: %s) to slot %d", 
+                     playing_item.name.c_str(), playing_item.target.c_str(), i + 1);
             
             // Save to the selected slot
-            this->save_preset_to_slot(i, current_preset.target, display_name);
+            this->save_preset_to_slot(i, playing_item.target, playing_item.name);
             
-            // Activate this preset immediately (makes it the current active preset with LED)
-            this->activate_preset_(&this->presets_[i]);
+            // DON'T activate the preset - stay on current station
+            // Just update the browse list and LED to reflect the save
+            this->build_browse_list_();
+            this->update_leds_for_browse_();
+            
+            // After brief confirmation, restore playing display
+            // (save_preset_to_slot already shows "PRESET X: SAVED")
+            // The display will automatically update on next metadata update
+            
+            ESP_LOGI(TAG, "SAVE MODE: Complete - staying on current station");
           } else {
-            ESP_LOGW(TAG, "No station currently playing");
+            ESP_LOGW(TAG, "SAVE MODE: Error - no valid currently playing item");
             if (this->display_) {
-              this->display_->set_text("NO STATION PLAYING");
+              this->display_->set_text("SAVE FAILED");
             }
           }
           this->save_preset_mode_ = false;
@@ -196,6 +224,7 @@ void RadioController::handle_key_press_(uint8_t row, uint8_t column) {
         }
       }
       // If not a valid preset slot, cancel save mode
+      ESP_LOGI(TAG, "SAVE MODE: Cancelled - button not a preset slot");
       this->save_preset_mode_ = false;
       return;
     }
@@ -231,33 +260,45 @@ void RadioController::handle_key_release_(uint8_t row, uint8_t column) {
     }
   }
   
-  // Check if this is memory button release - enter save preset mode
+  // Check if this is memory button release - toggle save preset mode
   if (this->has_memory_button_ && row == this->memory_button_row_ && column == this->memory_button_col_) {
-    // Regular press enters save preset mode (saves currently playing station)
-    ESP_LOGI(TAG, "Memory button pressed: enter save preset mode");
-    if (this->current_preset_index_ >= this->presets_.size() || !this->is_playing_) {
-      ESP_LOGW(TAG, "No station currently playing - cannot save preset");
-      if (this->display_) {
-        this->display_->set_text("NO STATION PLAYING");
+    // Toggle save preset mode
+    if (this->save_preset_mode_) {
+      // Already in save mode - tap again exits without saving
+      ESP_LOGI(TAG, "SAVE MODE: Cancelled by memory button (tap to exit)");
+      this->save_preset_mode_ = false;
+      
+      // Exit browse mode and return to now-playing display
+      if (this->browse_mode_active_) {
+        this->exit_browse_mode_();
+      } else {
+        // Restore now-playing display
+        if (currently_playing_index_ >= 0 && currently_playing_index_ < (int)browse_items_.size()) {
+          if (this->display_ != nullptr) {
+            std::string display_text = this->format_display_text_(browse_items_[currently_playing_index_].name);
+            this->display_->set_text(display_text.c_str());
+          }
+        }
       }
+      
+      // Update LEDs
+      this->update_leds_for_browse_();
     } else {
-      this->save_preset_mode_ = true;
-      if (this->display_) {
-        this->display_->set_text("SELECT PRESET");
+      // Enter save preset mode
+      if (currently_playing_index_ < 0 || !this->is_playing_) {
+        ESP_LOGW(TAG, "SAVE MODE: Cannot enter - no station currently playing");
+        if (this->display_) {
+          this->display_->set_text("NO STATION PLAYING");
+        }
+      } else {
+        const auto &item = browse_items_[currently_playing_index_];
+        ESP_LOGI(TAG, "SAVE MODE: Entered - will save '%s' (target: %s)", 
+                 item.name.c_str(), item.target.c_str());
+        this->save_preset_mode_ = true;
+        if (this->display_) {
+          this->display_->set_text("SELECT PRESET (TAP MEMORY TO CANCEL)");
+        }
       }
-    }
-    return;
-  }
-  
-  // Check if this was the old-style __PLAYLIST_MODE__ button (for backward compatibility)
-  Preset *preset = this->find_preset_(row, column);
-  if (preset != nullptr && preset->target == "__PLAYLIST_MODE__") {
-    // Toggle browse mode
-    ESP_LOGI(TAG, "Old-style playlist mode button: toggle browse mode");
-    if (this->browse_mode_active_) {
-      this->exit_browse_mode_();
-    } else {
-      this->enter_browse_mode_();
     }
     return;
   }
@@ -393,27 +434,23 @@ void RadioController::activate_preset_(Preset *preset) {
   for (size_t i = 0; i < browse_items_.size(); i++) {
     if (browse_items_[i].type == BrowseItem::PRESET && browse_items_[i].preset_index == preset_index) {
       currently_playing_index_ = i;
-      browse_index_ = i;  // Sync browse position too
+      // Note: browse_index_ stays where user was browsing (don't sync with currently_playing)
       ESP_LOGD(TAG, "Set currently_playing_index_ to %d for preset '%s'", i, preset->display_text.c_str());
       break;
     }
   }
   
-  // Memory button handling is now done in handle_key_press_() 
-  // which toggles browse mode directly. This check is kept for safety
-  // but should never be reached since Memory button is handled separately.
-  if (preset->target == "__PLAYLIST_MODE__") {
-    ESP_LOGW(TAG, "Memory button reached activate_preset_ - should be handled in handle_key_press_");
-    return;
-  }
-  
   // Update display (will show play icon since we're starting playback)
   // Set is_playing_ = true immediately for better UX
   is_playing_ = true;
+  
+  // Record activation time to delay metadata display (show station name first)
+  this->preset_activation_time_ = millis();
+  
   if (this->display_ != nullptr) {
     std::string display_text = this->format_display_text_(preset->display_text);
     this->display_->set_text(display_text.c_str());
-    ESP_LOGD(TAG, "Display updated: '%s'", display_text.c_str());
+    ESP_LOGD(TAG, "Display updated: '%s' (will show station name for 3 seconds)", display_text.c_str());
   }
   
   // Update text sensor
@@ -482,19 +519,28 @@ void RadioController::sync_preset_led_from_name(const std::string &preset_name) 
     return;
   }
   
-  // Find the preset by name
-  for (size_t i = 0; i < this->presets_.size(); i++) {
-    if (this->presets_[i].display_text == preset_name) {
-      ESP_LOGI(TAG, "Syncing preset LED by name: '%s' (index %d)", preset_name.c_str(), i);
-      this->current_preset_index_ = i;
-      this->update_preset_led_(i);
-      this->update_mode_led_(true);
-      this->set_vu_meter_target_brightness(204);  // 80% when playing
-      return;
+  // First try: Find in browse_items_ list (includes both presets and favorites)
+  for (size_t i = 0; i < browse_items_.size(); i++) {
+    const auto &item = browse_items_[i];
+    // Check if name contains the preset name (partial match for flexibility)
+    if (item.name.find(preset_name) != std::string::npos || 
+        preset_name.find(item.name) != std::string::npos) {
+      if (item.type == BrowseItem::PRESET && item.preset_index >= 0 && item.preset_index < 7) {
+        ESP_LOGI(TAG, "Syncing preset LED by name: '%s' matched browse item '%s' (preset %d)", 
+                 preset_name.c_str(), item.name.c_str(), item.preset_index);
+        this->current_preset_index_ = item.preset_index;
+        this->currently_playing_index_ = i;
+        this->is_playing_ = true;
+        this->update_preset_led_(item.preset_index);
+        this->update_leds_for_browse_();
+        this->update_mode_led_(true);
+        this->set_vu_meter_target_brightness(204);  // 80% when playing
+        return;
+      }
     }
   }
   
-  ESP_LOGW(TAG, "Could not sync LED: preset '%s' not found", preset_name.c_str());
+  ESP_LOGD(TAG, "LED sync: station '%s' not saved in any preset slot", preset_name.c_str());
 }
 
 void RadioController::sync_preset_led_from_target(const std::string &target) {
@@ -600,24 +646,24 @@ void RadioController::update_preset_led_(uint8_t preset_index) {
     return;
   }
   
-  // LED positions (SW, CS) for 8 presets from HardwareConfig.h
-  constexpr struct { uint8_t sw; uint8_t cs; } PRESET_LEDS[8] = {
+  // LED positions (SW, CS) for 7 presets from HardwareConfig.h
+  // Memory button at {3, 5} handled separately in update_leds_for_browse_()
+  constexpr struct { uint8_t sw; uint8_t cs; } PRESET_LEDS[7] = {
     {3, 3},  // Preset 1
     {3, 2},  // Preset 2
     {3, 1},  // Preset 3
     {3, 0},  // Preset 4
     {3, 8},  // Preset 5
     {3, 7},  // Preset 6
-    {3, 6},  // Preset 7
-    {3, 5}   // Memory/Preset 8
+    {3, 6}   // Preset 7
   };
   
-  if (preset_index >= 8) {
+  if (preset_index >= 7) {
     return;
   }
   
   // Turn off all preset LEDs
-  for (uint8_t i = 0; i < 8; i++) {
+  for (uint8_t i = 0; i < 7; i++) {
     this->led_driver_->set_pixel(PRESET_LEDS[i].cs, PRESET_LEDS[i].sw, 0);
   }
   
@@ -742,8 +788,8 @@ void RadioController::load_playlist_data(const std::string &json_data) {
 void RadioController::build_browse_list_() {
   browse_items_.clear();
   
-  // Add all 8 preset slots (including empty ones)
-  for (uint8_t i = 0; i < 8; i++) {
+  // Add all 7 preset slots (including empty ones)
+  for (uint8_t i = 0; i < 7; i++) {
     const StoredPreset &stored = stored_presets_[i];
     
     BrowseItem item;
@@ -813,7 +859,7 @@ void RadioController::build_browse_list_() {
     browse_items_.push_back(item);
   }
   
-  ESP_LOGI(TAG, "Built browse list: %d items (8 preset slots, %d playlists, %d favorites)",
+  ESP_LOGI(TAG, "Built browse list: %d items (7 preset slots, %d playlists, %d favorites)",
            browse_items_.size(), 
            this->playlists_.size(),
            this->all_favorites_.size());
@@ -857,7 +903,9 @@ void RadioController::exit_browse_mode_() {
                                now_playing_metadata_ != "Ready" && 
                                now_playing_metadata_ != "ready" &&
                                now_playing_metadata_ != "Stopped" &&
-                               now_playing_metadata_ != "stopped";
+                               now_playing_metadata_ != "stopped" &&
+                               now_playing_metadata_ != "Playing" &&
+                               now_playing_metadata_ != "playing";
       
       if (is_playing_ && has_real_metadata) {
         ESP_LOGD(TAG, "Showing metadata: %s", now_playing_metadata_.c_str());
@@ -933,12 +981,13 @@ void RadioController::update_leds_for_browse_() {
     return;
   }
   
-  // Clear all preset LEDs
-  for (uint8_t i = 0; i < 8; i++) {
-    constexpr struct { uint8_t sw; uint8_t cs; } PRESET_LEDS[8] = {
-      {3, 3}, {3, 2}, {3, 1}, {3, 0},
-      {3, 8}, {3, 7}, {3, 6}, {3, 5}
-    };
+  // Clear all preset LEDs (7 presets)
+  constexpr struct { uint8_t sw; uint8_t cs; } PRESET_LEDS[7] = {
+    {3, 3}, {3, 2}, {3, 1}, {3, 0},
+    {3, 8}, {3, 7}, {3, 6}
+  };
+  
+  for (uint8_t i = 0; i < 7; i++) {
     this->led_driver_->set_pixel(PRESET_LEDS[i].cs, PRESET_LEDS[i].sw, 0);
   }
   
@@ -946,11 +995,7 @@ void RadioController::update_leds_for_browse_() {
     // Not browsing - show only the currently playing station at BRIGHT (255)
     if (currently_playing_index_ >= 0 && currently_playing_index_ < (int)browse_items_.size()) {
       const auto &item = browse_items_[currently_playing_index_];
-      if (item.type == BrowseItem::PRESET && item.preset_index >= 0 && item.preset_index < 8) {
-        constexpr struct { uint8_t sw; uint8_t cs; } PRESET_LEDS[8] = {
-          {3, 3}, {3, 2}, {3, 1}, {3, 0},
-          {3, 8}, {3, 7}, {3, 6}, {3, 5}
-        };
+      if (item.type == BrowseItem::PRESET && item.preset_index >= 0 && item.preset_index < 7) {
         this->led_driver_->set_pixel(PRESET_LEDS[item.preset_index].cs, 
                                      PRESET_LEDS[item.preset_index].sw, 255);  // BRIGHT
       }
@@ -960,11 +1005,7 @@ void RadioController::update_leds_for_browse_() {
     // Show currently playing station BRIGHT (255) always
     if (currently_playing_index_ >= 0 && currently_playing_index_ < (int)browse_items_.size()) {
       const auto &playing = browse_items_[currently_playing_index_];
-      if (playing.type == BrowseItem::PRESET && playing.preset_index >= 0 && playing.preset_index < 8) {
-        constexpr struct { uint8_t sw; uint8_t cs; } PRESET_LEDS[8] = {
-          {3, 3}, {3, 2}, {3, 1}, {3, 0},
-          {3, 8}, {3, 7}, {3, 6}, {3, 5}
-        };
+      if (playing.type == BrowseItem::PRESET && playing.preset_index >= 0 && playing.preset_index < 7) {
         this->led_driver_->set_pixel(PRESET_LEDS[playing.preset_index].cs,
                                      PRESET_LEDS[playing.preset_index].sw, 255);  // BRIGHT
       }
@@ -973,18 +1014,36 @@ void RadioController::update_leds_for_browse_() {
     // Show current selection DIM (128) if it's different from playing
     if (browse_index_ < browse_items_.size() && (int)browse_index_ != currently_playing_index_) {
       const auto &current = browse_items_[browse_index_];
-      if (current.type == BrowseItem::PRESET && current.preset_index >= 0 && current.preset_index < 8) {
-        constexpr struct { uint8_t sw; uint8_t cs; } PRESET_LEDS[8] = {
-          {3, 3}, {3, 2}, {3, 1}, {3, 0},
-          {3, 8}, {3, 7}, {3, 6}, {3, 5}
-        };
+      if (current.type == BrowseItem::PRESET && current.preset_index >= 0 && current.preset_index < 7) {
         this->led_driver_->set_pixel(PRESET_LEDS[current.preset_index].cs,
                                      PRESET_LEDS[current.preset_index].sw, 128);  // DIM
       }
     }
-    
-    // Memory button LED on while browsing
-    this->led_driver_->set_pixel(5, 3, 255);  // Memory button at SW=3, CS=5
+  }
+  
+  // Memory button LED logic:
+  // - Bright (255) when in save preset mode OR actively browsing
+  // - Dim (64) when playing non-preset station (favorite from MA)
+  // - Off when playing a preset slot or stopped
+  if (this->save_preset_mode_) {
+    // Save mode active - bright
+    this->led_driver_->set_pixel(5, 3, 255);
+  } else if (browse_mode_active_) {
+    // Browsing - bright
+    this->led_driver_->set_pixel(5, 3, 255);
+  } else if (currently_playing_index_ >= 0 && 
+             currently_playing_index_ < (int)browse_items_.size()) {
+    const auto &item = browse_items_[currently_playing_index_];
+    if (item.type != BrowseItem::PRESET || item.preset_index < 0 || item.preset_index >= 7) {
+      // Playing a favorite (not a preset slot) - dim indicator
+      this->led_driver_->set_pixel(5, 3, 64);
+    } else {
+      // Playing a preset - memory LED off
+      this->led_driver_->set_pixel(5, 3, 0);
+    }
+  } else {
+    // Stopped - memory LED off
+    this->led_driver_->set_pixel(5, 3, 0);
   }
   
   this->led_driver_->show();
@@ -1078,8 +1137,11 @@ void RadioController::play_browse_item_(size_t index) {
   
   // Update state
   currently_playing_index_ = index;
-  browse_index_ = index;  // Sync selection
+  // Note: browse_index_ stays where user was browsing (don't sync with currently_playing)
   is_playing_ = true;
+  
+  // Record activation time to delay metadata display
+  this->preset_activation_time_ = millis();
   
   // Exit browse mode (will show station name or metadata)
   if (browse_mode_active_) {
@@ -1090,6 +1152,7 @@ void RadioController::play_browse_item_(size_t index) {
   if (this->display_ != nullptr) {
     std::string display_text = this->format_display_text_(item.name);
     this->display_->set_text(display_text.c_str());
+    ESP_LOGD(TAG, "Display updated: '%s' (will show station name for 3 seconds)", display_text.c_str());
   }
   
   // Update text sensors for Home Assistant
@@ -1132,15 +1195,29 @@ void RadioController::set_now_playing_metadata(const std::string &metadata) {
   
   ESP_LOGD(TAG, "Metadata updated: %s", metadata.c_str());
   
-  // Filter out non-metadata values like "Ready", "Stopped"
+  // Filter out non-metadata values like "Ready", "Stopped", "Playing"
   bool is_real_metadata = !metadata.empty() && 
                           metadata != "Ready" && 
                           metadata != "ready" &&
                           metadata != "Stopped" &&
-                          metadata != "stopped";
+                          metadata != "stopped" &&
+                          metadata != "Playing" &&
+                          metadata != "playing";
+  
+  // Check if we're in the "show station name" period (3 seconds after preset activation)
+  bool in_station_name_period = false;
+  if (this->preset_activation_time_ > 0) {
+    uint32_t elapsed = millis() - this->preset_activation_time_;
+    in_station_name_period = (elapsed < 3000);  // 3 second delay
+    if (in_station_name_period) {
+      ESP_LOGD(TAG, "Ignoring metadata - showing station name (%d ms remaining)", 3000 - elapsed);
+    }
+  }
   
   // If not browsing and currently playing, update display with metadata (if it's real metadata)
-  if (!browse_mode_active_ && is_playing_ && this->display_ != nullptr && is_real_metadata) {
+  // BUT: Don't override station name for first 3 seconds after preset activation
+  if (!browse_mode_active_ && is_playing_ && this->display_ != nullptr && 
+      is_real_metadata && !in_station_name_period) {
     std::string display_text = this->format_display_text_(metadata);
     this->display_->set_text(display_text.c_str());  // RetroText auto-scrolls
   }
@@ -1149,6 +1226,11 @@ void RadioController::set_now_playing_metadata(const std::string &metadata) {
 void RadioController::set_playback_state(bool playing) {
   bool state_changed = (is_playing_ != playing);
   is_playing_ = playing;
+  
+  // Clear activation time when stopping (reset display delay)
+  if (!playing) {
+    this->preset_activation_time_ = 0;
+  }
   
   ESP_LOGI(TAG, "set_playback_state(%s) - state_changed=%d", playing ? "PLAYING" : "STOPPED", state_changed);
   
@@ -1169,7 +1251,9 @@ void RadioController::set_playback_state(bool playing) {
                              now_playing_metadata_ != "Ready" && 
                              now_playing_metadata_ != "ready" &&
                              now_playing_metadata_ != "Stopped" &&
-                             now_playing_metadata_ != "stopped";
+                             now_playing_metadata_ != "stopped" &&
+                             now_playing_metadata_ != "Playing" &&
+                             now_playing_metadata_ != "playing";
     
     if (playing && has_real_metadata) {
       // Playing with real metadata - show it with icon
@@ -1202,7 +1286,7 @@ void RadioController::set_playback_state(bool playing) {
 void RadioController::load_presets_from_flash_() {
   ESP_LOGI(TAG, "Loading presets from flash...");
   
-  for (uint8_t i = 0; i < 8; i++) {
+  for (uint8_t i = 0; i < 7; i++) {
     // Create preference object for each slot
     char pref_name[16];
     snprintf(pref_name, sizeof(pref_name), "preset_%d", i);
@@ -1241,7 +1325,7 @@ void RadioController::load_presets_from_flash_() {
 
 void RadioController::save_preset_to_slot(uint8_t slot, const std::string &media_id, 
                                            const std::string &display_name) {
-  if (slot >= 8) {
+  if (slot >= 7) {
     ESP_LOGE(TAG, "Invalid preset slot: %d", slot);
     return;
   }
@@ -1284,10 +1368,13 @@ void RadioController::save_preset_to_slot(uint8_t slot, const std::string &media
   if (this->display_) {
     this->display_->set_text(msg);
   }
+  
+  // Start timer to auto-dismiss message after 2 seconds
+  this->preset_saved_message_time_ = millis();
 }
 
 void RadioController::save_preset_to_flash_(uint8_t slot) {
-  if (slot >= 8) return;
+  if (slot >= 7) return;
   
   if (preset_prefs_[slot].save(&stored_presets_[slot])) {
     ESP_LOGD(TAG, "Preset %d saved to flash successfully", slot);
@@ -1297,7 +1384,7 @@ void RadioController::save_preset_to_flash_(uint8_t slot) {
 }
 
 StoredPreset RadioController::get_preset(uint8_t slot) {
-  if (slot >= 8) {
+  if (slot >= 7) {
     StoredPreset empty = {0};
     return empty;
   }
@@ -1305,7 +1392,7 @@ StoredPreset RadioController::get_preset(uint8_t slot) {
 }
 
 void RadioController::clear_preset_slot(uint8_t slot) {
-  if (slot >= 8) return;
+  if (slot >= 7) return;
   
   ESP_LOGI(TAG, "Clearing preset slot %d", slot);
   
@@ -1331,11 +1418,11 @@ void RadioController::clear_preset_slot(uint8_t slot) {
 void RadioController::publish_preset_sensors_() {
   // Preset slot sensors removed - caused API connection issues
   // Instead, presets are exposed via:
-  // 1. Select component (lists all 8 presets)
+  // 1. Select component (lists all 7 presets)
   // 2. current_preset text sensor (shows currently selected)
   // 3. Log messages show preset state
   
-  for (uint8_t i = 0; i < 8; i++) {
+  for (uint8_t i = 0; i < 7; i++) {
     if (stored_presets_[i].is_valid) {
       ESP_LOGD(TAG, "Preset %d: %s", i + 1, stored_presets_[i].display_name);
     } else {
@@ -1349,7 +1436,7 @@ void RadioController::update_preset_select_options_() {
   
   // Build list of options including empty slots
   std::vector<std::string> options;
-  for (uint8_t i = 0; i < 8; i++) {
+  for (uint8_t i = 0; i < 7; i++) {
     options.push_back(stored_presets_[i].display_name);
   }
   

@@ -6,9 +6,9 @@ Retrofit of a 1970s ASC AS-5000E digital tuner with ESP32 and internet streaming
 
 ## What It Does
 
-- **8 Preset Buttons**: Save and recall any favorite radio station or playlist (stored in ESP32 flash)
-- **Save Preset Mode**: Hold Memory button 2 seconds → press preset button to save current station
-- **Browse All Favorites**: Encoder scrolls through ALL Music Assistant favorites (radios + playlists)
+- **7 Preset Buttons**: Save and recall any favorite radio station or playlist (stored in ESP32 flash)
+- **Memory Button**: Tap to enter save mode, tap again to cancel, or press a preset to save current station
+- **Browse All Favorites**: Encoder scrolls through all Music Assistant favorites (radios + playlists)
 - **LED Matrix Display**: Shows station metadata with automatic scrolling (18 characters)
 - **LED Feedback**: Preset button LEDs indicate current selection with brightness levels
 - **Auto-Resume**: Remembers last preset and auto-plays on power-up
@@ -96,16 +96,13 @@ radio_controller:
     - button: {row: 3, column: 3}
       name: "BBC RADIO 4"
       media_id: "radio/bbc_radio_4"
-    
-    - button: {row: 3, column: 2}
-      name: "JAZZ FM"
-      media_id: "radio/jazz_fm"
+    # ... 6 more presets (7 total: columns 3,2,1,0,8,7,6)
   
   controls:
     encoder_button: {row: 2, column: 1}
     encoder_a: {row: 2, column: 2}
     encoder_b: {row: 2, column: 3}
-    memory_button: {row: 3, column: 9}
+    memory_button: {row: 3, column: 5}
 ```
 
 ### Component Options
@@ -165,7 +162,7 @@ radio_controller:
 
 ### Home Assistant Integration
 
-The radio requires **one config helper**, **one template sensor**, and **two automations** in Home Assistant.
+The radio requires **one config helper**, **two template sensors**, and **two automations** in Home Assistant.
 
 📁 **See [`esphome/automations/`](esphome/automations/) for complete setup instructions and YAML configurations.**
 
@@ -183,9 +180,9 @@ The radio requires **one config helper**, **one template sensor**, and **two aut
 |-----------|------|---------|
 | Config Helper | [`config_helper.yaml`](esphome/automations/config_helper.yaml) | Stores media player entity ID **(create first!)** |
 | Template Sensor | [`now_playing_sensor.yaml`](esphome/automations/now_playing_sensor.yaml) | Extracts metadata from media player |
+| Template Sensor | [`speaker_volume_sensor.yaml`](esphome/automations/speaker_volume_sensor.yaml) | Exposes current volume for display sync |
 | Automation | [`media_control.yaml`](esphome/automations/media_control.yaml) | Handles play/stop commands |
-| Automation | [`load_playlists.yaml`](esphome/automations/load_playlists.yaml) | Fetches playlists from Music Assistant |
-| Automation | [`load_all_favorites.yaml`](esphome/automations/load_all_favorites.yaml) | Fetches ALL favorites for unified browsing |
+| Automation | [`load_all_favorites.yaml`](esphome/automations/load_all_favorites.yaml) | Loads radios + playlists on device boot |
 
 **Full setup guide:** [`esphome/automations/README.md`](esphome/automations/README.md)
 

@@ -25,7 +25,12 @@
 #         unique_id: radio_speaker_volume
 #         state: |
 #           {% set player = states('input_select.radio_media_player_entity') %}
-#           {{ state_attr(player, 'volume_level') | default(0.5) }}
+#           {% set volume = state_attr(player, 'volume_level') %}
+#           {% if volume not in [None, 'unknown', 'unavailable'] %}
+#             {{ volume }}
+#           {% else %}
+#             0.5
+#           {% endif %}
 #         unit_of_measurement: ""
 #         icon: mdi:volume-high
 
@@ -39,7 +44,12 @@ Unique ID: radio_speaker_volume
 
 State Template: |
   {% set player = states('input_select.radio_media_player_entity') %}
-  {{ state_attr(player, 'volume_level') | default(0.5) }}
+  {% set volume = state_attr(player, 'volume_level') %}
+  {% if volume not in [None, 'unknown', 'unavailable'] %}
+    {{ volume }}
+  {% else %}
+    0.5
+  {% endif %}
 
 Unit of Measurement: (leave empty)
 

@@ -36,11 +36,12 @@
 - `panel_leds` - LED control with brightness feedback
 
 ### ✅ Radio Controller Refactor
-- Unified browse system (presets + playlists)
+- Unified browse system (7 presets + all favorites from Music Assistant)
 - Full quadrature encoder decoding (2-step detent tracking)
 - Play/stop toggle on encoder button
-- Memory button browse toggle
-- 3-level LED brightness (bright/dim/off)
+- Memory button: tap to enter save mode, tap again to cancel
+- Browse mode (not "playlist mode")
+- 3-level LED brightness with memory button indicator (bright/dim/off)
 - 5-second browse timeout
 - Display state management
 - Deprecated code removed
@@ -66,12 +67,12 @@
 
 ### ✅ Preset Storage & Saving
 - Flash-based preset storage (ESP32 Preferences API)
-- 8 preset slots with persistent memory
-- Memory button long-press (2 sec) enters save mode
+- 7 preset slots with persistent memory
+- Memory button: tap to enter save mode, tap again to cancel, press preset to save
 - Save any favorite to any preset button
 - Empty slot handling with user feedback
 - Auto-generated preset sensors expose to HA
-- Unified browse: 8 presets + all MA favorites
+- Unified browse: 7 presets + all MA favorites
 
 ## Active Development
 
@@ -179,8 +180,8 @@
 ### Hardware
 - **MCU**: ESP32 (Arduino framework)
 - **Display**: 3× IS31FL3737 (24×6 logical pixels = 18 chars @ 4×6)
-- **Panel**: IS31FL3737 LED driver + TCA8418 keypad controller
-- **Encoder**: Pushbutton rotary encoder via TCA8418
+- **Panel**: 7 preset buttons + 1 memory button (Row 3)
+- **Encoder**: Pushbutton rotary encoder via TCA8418 (Row 2)
 - **Connectivity**: WiFi + NTP time
 
 ### Software Stack

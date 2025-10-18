@@ -37,6 +37,7 @@ class RetroTextDisplay : public Component {
   void set_text(const char *text);
   void set_text_with_brightness(const char *text, uint8_t date_brightness, uint8_t time_brightness, int split_pos);
   void clear();
+  void set_shimmer_mode(bool enabled);  // Enable/disable shimmer loading effect
   
   // Scroll modes
   enum ScrollMode {
@@ -71,6 +72,10 @@ class RetroTextDisplay : public Component {
   int scroll_position_{0};
   size_t text_length_{0};
   uint8_t stationary_prefix_chars_{0};  // Number of chars at start that don't scroll
+  
+  // Shimmer effect state
+  bool shimmer_enabled_{false};
+  float shimmer_phase_{0.0f};  // Animation phase (0.0 to 2*PI)
   
   // Internal methods
   bool initialize_boards_();
