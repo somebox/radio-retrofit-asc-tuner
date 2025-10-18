@@ -58,8 +58,9 @@ All pin assignments defined in `include/hardware/HardwareConfig.h`.
 ### Analog Input
 
 **Potentiometer**: GPIO33 (ADC1_CH5)
-- Controls display and VU meter backlight brightness
-- 12-bit ADC (0-4095), with deadzone filtering and time throttling
+- 12-bit ADC (0-3.3V), reads speaker volume control
+- Filtered with sliding window average and 2% deadzone
+- Updates Home Assistant media player volume in real-time
 
 ### LED Matrix Mapping (IS31FL3737 @ 0x55)
 
@@ -74,18 +75,15 @@ All pin assignments defined in `include/hardware/HardwareConfig.h`.
 - Signal Bar: SW2/CS3
 - Signal Backlight: SW2/CS10
 
-## Brightness Control
+## Volume Control
 
-**Potentiometer** controls:
-- Display brightness (via `DisplayManager::setBrightnessLevel()`)
-- VU meter backlights only (via `RadioHardware::setVUMeterBacklightBrightness()`)
+**Potentiometer** controls speaker volume:
+- Reads 0-3.3V and converts to 0-100% volume
+- Calls Home Assistant `media_player.volume_set` service
+- Volume target is configured via `input_select.radio_media_player_entity` helper
+- Filtered to prevent jitter and excessive updates
 
-**Indicator LEDs** maintain constant brightness (not affected by potentiometer):
-- Preset button LEDs
-- Mode selector LEDs
-- VU meter bars
-
-**Brightness Levels** (defined in `HardwareConfig.h`):
-- `LED_BRIGHTNESS_OFF` = 0
-- `LED_BRIGHTNESS_DIM` = 64 (startup default for VU backlights)
-- `LED_BRIGHTNESS_FULL` = 255
+**Display Brightness** is controlled separately via ESPHome:
+- Exposed as `Display Brightness` number entity in Home Assistant
+- Range: 10-255 (slider control)
+- Clock mode uses reduced brightness (100) automatically

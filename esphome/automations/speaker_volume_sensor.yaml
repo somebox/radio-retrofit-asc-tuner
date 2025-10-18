@@ -1,0 +1,55 @@
+# ============================================
+# CONFIGURATION - Setup Instructions
+# ============================================
+# This template sensor reads the volume level from your configured media player
+# and exposes it to ESPHome. This allows the radio to sync its display or
+# provide feedback about the current volume level.
+#
+# The media player entity ID is read from: input_select.radio_media_player_entity
+# (configured in config_helper.yaml)
+#
+# Setup in Home Assistant:
+#   Settings → Devices & Services → Helpers → Create Helper
+#   → Template → Template a sensor
+#
+# OR add to configuration.yaml under 'template:' section
+
+# ============================================
+# Template Sensor Configuration (for YAML config)
+# ============================================
+# Copy this block to your configuration.yaml under the 'template:' section:
+#
+# template:
+#   - sensor:
+#       - name: "Radio Speaker Volume"
+#         unique_id: radio_speaker_volume
+#         state: |
+#           {% set player = states('input_select.radio_media_player_entity') %}
+#           {{ state_attr(player, 'volume_level') | default(0.5) }}
+#         unit_of_measurement: ""
+#         icon: mdi:volume-high
+
+# ============================================
+# UI Helper Configuration (for GUI setup)
+# ============================================
+# Use these values when creating via Settings → Helpers:
+
+Name: Radio Speaker Volume
+Unique ID: radio_speaker_volume
+
+State Template: |
+  {% set player = states('input_select.radio_media_player_entity') %}
+  {{ state_attr(player, 'volume_level') | default(0.5) }}
+
+Unit of Measurement: (leave empty)
+
+Icon Template: |
+  mdi:volume-high
+
+# ============================================
+# Notes
+# ============================================
+# - The volume_level attribute is a float between 0.0 and 1.0
+# - ESPHome will multiply this by 100 to get a 0-100 percentage
+# - Default is 0.5 (50%) if the media player is unavailable
+

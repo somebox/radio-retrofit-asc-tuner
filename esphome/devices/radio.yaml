@@ -173,6 +173,18 @@ api:
         - lambda: |-
             ESP_LOGI("favorites", "Received all favorites data via service");
             id(controller).load_all_favorites(favorites_json);
+    
+    # Clear all saved presets from flash (restores YAML config)
+    - service: clear_saved_presets
+      then:
+        - lambda: |-
+            ESP_LOGI("presets", "Clearing all saved presets from flash");
+            for (uint8_t i = 0; i < 8; i++) {
+              id(controller).clear_preset_slot(i);
+            }
+            ESP_LOGI("presets", "Saved presets cleared - rebooting to restore YAML config");
+            // Reboot to reload presets from YAML
+            App.safe_reboot();
 
 ota:
   - platform: esphome
@@ -347,6 +359,13 @@ text_sensor:
               ESP_LOGI("now_playing", "Syncing LED with media_id: %s", id(current_media_id).state.c_str());
               id(controller).sync_preset_led_from_target(id(current_media_id).state);
             }
+  
+  # Store the target media player entity ID for volume control
+  - platform: homeassistant
+    name: "Volume Target Entity"
+    id: ha_volume_target
+    entity_id: input_select.radio_media_player_entity
+    internal: true
 
 # Select for preset selection
 select:
@@ -396,6 +415,48 @@ text:
   
   # Station Name (internal, used for loading spinner)
   # Note: Playlist data is loaded via custom service below
+
+# Sensors
+sensor:
+  # Volume potentiometer (GPIO33 / ADC1_CH5)
+  - platform: adc
+    pin: GPIO33
+    name: "Volume Pot"
+    id: volume_pot
+    internal: true  # Don't expose to HA UI directly
+    update_interval: 200ms
+    attenuation: 12db  # 0-3.3V range
+    filters:
+      # Smooth out noise with a sliding window average
+      - sliding_window_moving_average:
+          window_size: 4
+          send_every: 2
+      # Convert voltage (0-3.3V) to percentage (0-100)
+      - calibrate_linear:
+          - 0.0 -> 1.0
+          - 3.3 -> 94.0
+      # Apply deadzone to prevent oscillation
+      - delta: 2.0  # Only send if changed by 2%
+    on_value:
+      then:
+        - homeassistant.service:
+            service: media_player.volume_set
+            data:
+              entity_id: !lambda |-
+                return id(ha_volume_target).state;
+              volume_level: !lambda |-
+                // Convert 0-100 to 0.0-1.0
+                return x / 100.0;
+  
+  # Volume readback from HA (for display sync)
+  - platform: homeassistant
+    name: "Speaker Volume"
+    id: speaker_volume
+    entity_id: sensor.radio_speaker_volume
+    internal: true
+    filters:
+      # Convert 0.0-1.0 back to 0-100 percentage
+      - multiply: 100
 
 # Number sensors
 number:

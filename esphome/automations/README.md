@@ -23,6 +23,17 @@ Stores your media player entity ID so you only configure it once. All other comp
 
 **Why Dropdown?** Prevents typos, shows available players, better UX than text input.
 
+### 0.5. Template Sensor: `Radio Speaker Volume` (Required for Volume Control)
+**File:** [`speaker_volume_sensor.yaml`](speaker_volume_sensor.yaml)
+
+Reads the current volume level from your media player and exposes it to ESPHome.
+
+**Setup:**
+- Settings → Devices & Services → Helpers → Create Helper → Template → Template a sensor
+- Copy the template from the file
+
+**Note:** This is required for the potentiometer volume control to work.
+
 ### 1. Template Sensor: `Radio Now Playing`
 **File:** [`now_playing_sensor.yaml`](now_playing_sensor.yaml)
 

@@ -748,8 +748,21 @@ void RadioController::build_browse_list_() {
     
     BrowseItem item;
     item.type = BrowseItem::PRESET;
-    item.name = stored.display_name;
-    item.target = stored.is_valid ? stored.media_id : "";
+    
+    // Use stored preset if valid, otherwise fall back to YAML preset
+    if (stored.is_valid) {
+      item.name = stored.display_name;
+      item.target = stored.media_id;
+    } else if (i < this->presets_.size()) {
+      // Use YAML preset when stored preset is invalid/empty
+      item.name = this->presets_[i].display_text;
+      item.target = this->presets_[i].target;
+    } else {
+      // No YAML preset either - truly empty
+      item.name = stored.display_name;  // "Empty Slot X"
+      item.target = "";
+    }
+    
     item.preset_index = i;
     
     // Find row/column from runtime presets if available
