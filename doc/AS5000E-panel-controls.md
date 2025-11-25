@@ -40,21 +40,30 @@ All pin assignments defined in `include/hardware/HardwareConfig.h`.
 **IS31FL3737 Address Calculation**: Base `0b1010000` + ADDR pin bits
 - GND=`0000` → 0x50, VCC=`1010` → 0x5A, SDA=`1111` → 0x5F, SCL=`0101` → 0x55
 
-### TCA8418 Matrix Mapping
+### TCA8418 Matrix Mapping (VERIFIED)
 
 **Preset Buttons** (Row 3):
-- Presets 1-7: Cols 3,2,1,0,8,7,6
-- Memory: Col 5
+- Preset 1: R3, C3
+- Preset 2: R3, C2  
+- Preset 3: R3, C1
+- Preset 4: R3, C0
+- Preset 5: R3, C8
+- Preset 6: R3, C7
+- Preset 7: R3, C6
+- Memory: R3, C5
 - Note: Col 4 physically skipped (PCB gap)
 - Note: Ghost key releases detected on adjacent columns (TCA8418 scanning artifact)
 
 **Rotary Encoder** (Row 2):
-- Channel A: Col 3
-- Channel B: Col 4  
-- Push Button: Col 1
+- Channel A: R2, C2
+- Channel B: R2, C3  
+- Push Button: R2, C1
 
-**Mode Selector** (Row 2):
-- Positions: Cols 0-3 (Stereo, Stereo-Far, Q, Mono)
+**Mode Selector** (Row 0):
+- M0 (Stereo): R0, C5
+- M1 (Stereo-Far): R0, C6
+- M2 (Q): R0, C7
+- M3 (Mono): R0, C8
 
 ### Analog Input
 
@@ -70,11 +79,10 @@ All pin assignments defined in `include/hardware/HardwareConfig.h`.
 **Mode LEDs** (Row 0): SW0/CS(7,6,8,5)
 
 **VU Meter LEDs** (Row 2):
-- Tuning Bar 1: SW2/CS0
-- Tuning Bar 2: SW2/CS1
-- Tuning Backlight: SW2/CS9
-- Signal Bar: SW2/CS3
-- Signal Backlight: SW2/CS10
+- VU Meter 1: SW2/CS1
+- VU Meter 2: SW2/CS2  
+- VU Meter 3: SW2/CS3
+- Note: One meter is bipolar and requires both CS2/CS3 to function
 
 ## Volume Control
 

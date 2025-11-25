@@ -70,6 +70,7 @@ class RadioController : public Component {
   void set_preset_text_sensor(text_sensor::TextSensor *sensor) { this->preset_text_sensor_ = sensor; }
   void set_preset_target_sensor(text_sensor::TextSensor *sensor) { this->preset_target_sensor_ = sensor; }
   void set_preset_select(select::Select *select) { this->preset_select_ = select; }
+  void set_mode_text_sensor(text_sensor::TextSensor *sensor) { this->mode_text_sensor_ = sensor; }
   
   void add_preset(uint8_t row, uint8_t column, const std::string &display_text, const std::string &target, const std::string &service);
   void add_preset_data(uint8_t row, uint8_t column, const std::string &key, const std::string &value);
@@ -101,6 +102,9 @@ class RadioController : public Component {
   
   // Memory button configuration
   void set_memory_button(uint8_t row, uint8_t column);
+  
+  // VU meter test
+  void start_vu_meter_test();
   
   // Register auto-generated preset slot sensors
   void register_preset_slot_sensor(uint8_t slot, text_sensor::TextSensor *sensor);
@@ -134,6 +138,7 @@ class RadioController : public Component {
   bool init_panel_leds_();
   void update_preset_led_(uint8_t preset_index);
   void update_mode_led_(bool playing);
+  void update_mode_selector_led_(uint8_t mode);
   void set_vu_meter_target_brightness(uint8_t target);
   void update_vu_meter_slew_();
   
@@ -146,6 +151,7 @@ class RadioController : public Component {
   text_sensor::TextSensor *preset_text_sensor_{nullptr};
   text_sensor::TextSensor *preset_target_sensor_{nullptr};
   text_sensor::TextSensor *radio_mode_sensor_{nullptr};
+  text_sensor::TextSensor *mode_text_sensor_{nullptr};
   select::Select *preset_select_{nullptr};
   
   std::string default_service_;
@@ -169,6 +175,11 @@ class RadioController : public Component {
   uint8_t vu_meter_current_brightness_{0};
   uint8_t vu_meter_target_brightness_{0};
   uint32_t last_vu_meter_update_{0};
+  
+  // VU meter test mode
+  bool vu_meter_test_active_{false};
+  uint32_t vu_meter_test_start_{0};
+  uint32_t vu_meter_test_phase_{0};
   
   // Optional controls
   bool has_encoder_button_{false};

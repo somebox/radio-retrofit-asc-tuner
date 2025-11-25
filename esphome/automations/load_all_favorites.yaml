@@ -35,12 +35,24 @@ actions:
   - action: esphome.retro_radio_load_all_favorites
     data:
       favorites_json: >
-        {%- set ns = namespace(items=[]) -%} {%- for radio in radios['items']
-        -%}
-          {%- set ns.items = ns.items + [{'name': radio.name, 'uri': radio.uri}] -%}
-        {%- endfor -%} {%- for playlist in playlists['items'] -%}
-          {%- set ns.items = ns.items + [{'name': playlist.name, 'uri': playlist.uri}] -%}
-        {%- endfor -%} {{ ns.items | tojson }}
+        {%- set ns = namespace(items=[]) -%}
+        {%- if radios is defined -%}
+          {%- set radio_items = radios['items'] | default([]) -%}
+          {%- for radio in radio_items -%}
+            {%- if radio.name is defined and radio.uri is defined -%}
+              {%- set ns.items = ns.items + [{'name': radio.name, 'uri': radio.uri}] -%}
+            {%- endif -%}
+          {%- endfor -%}
+        {%- endif -%}
+        {%- if playlists is defined -%}
+          {%- set playlist_items = playlists['items'] | default([]) -%}
+          {%- for playlist in playlist_items -%}
+            {%- if playlist.name is defined and playlist.uri is defined -%}
+              {%- set ns.items = ns.items + [{'name': playlist.name, 'uri': playlist.uri}] -%}
+            {%- endif -%}
+          {%- endfor -%}
+        {%- endif -%}
+        {{ ns.items | tojson }}
 variables:
   music_assistant_config_id: 01K65E8GMGHZXQTFAH6ZJ7TDGY
 mode: restart

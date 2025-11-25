@@ -3,6 +3,7 @@
 #include "esphome/core/application.h"
 #include "esphome/components/retrotext_display/is31fl3737_driver.h"
 #include <ArduinoJson.h>
+#include <cmath>
 
 namespace esphome {
 namespace radio_controller {
@@ -158,7 +159,7 @@ void RadioController::set_encoder_button(uint8_t row, uint8_t column) {
 }
 
 void RadioController::handle_key_press_(uint8_t row, uint8_t column) {
-  ESP_LOGD(TAG, "Key pressed: row=%d, col=%d", row, column);
+  ESP_LOGI(TAG, "Key pressed: row=%d, col=%d", row, column);
   
   // Check if this is an encoder rotation channel (A or B)
   // Actual hardware mapping (may differ from HardwareConfig.h)
@@ -179,6 +180,22 @@ void RadioController::handle_key_press_(uint8_t row, uint8_t column) {
   if (this->has_memory_button_ && row == this->memory_button_row_ && column == this->memory_button_col_) {
     // Record press time for long-press detection
     this->memory_button_press_time_ = millis();
+    return;
+  }
+  
+  // Check if this is a mode selector button
+  if (row == 0 && column >= 5 && column <= 8) {
+    uint8_t mode = column - 5;  // 0-3 for M0-M3
+    const char* mode_names[] = {"Stereo", "Stereo-Far", "Q", "Mono"};
+    ESP_LOGI(TAG, "Mode selector: M%d (%s)", mode, mode_names[mode]);
+    
+    // Update mode LED
+    this->update_mode_selector_led_(mode);
+    
+    // Publish mode change for automations
+    if (this->mode_text_sensor_ != nullptr) {
+      this->mode_text_sensor_->publish_state(mode_names[mode]);
+    }
     return;
   }
   
@@ -691,9 +708,42 @@ void RadioController::update_mode_led_(bool playing) {
   ESP_LOGD(TAG, "Updated mode LED: Stereo %s", playing ? "ON" : "OFF");
 }
 
+void RadioController::update_mode_selector_led_(uint8_t mode) {
+  if (!this->panel_leds_initialized_ || !this->led_driver_) {
+    return;
+  }
+  
+  // Clear all mode selector LEDs first (SW0/CS5-8)
+  for (uint8_t i = 5; i <= 8; i++) {
+    this->led_driver_->set_pixel(i, 0, 0);
+  }
+  
+  // Light up the selected mode (SW0/CS5-8)
+  if (mode < 4) {
+    this->led_driver_->set_pixel(5 + mode, 0, 255);
+  }
+  
+  this->led_driver_->show();
+  
+  ESP_LOGD(TAG, "Updated mode selector LED: M%d", mode);
+}
+
 void RadioController::set_vu_meter_target_brightness(uint8_t target) {
   this->vu_meter_target_brightness_ = target;
   ESP_LOGD(TAG, "VU meter target brightness set to: %d", target);
+}
+
+void RadioController::start_vu_meter_test() {
+  if (!this->panel_leds_initialized_ || !this->led_driver_) {
+    ESP_LOGW(TAG, "VU meter test: Panel LEDs not available");
+    return;
+  }
+  
+  this->vu_meter_test_active_ = true;
+  this->vu_meter_test_start_ = millis();
+  this->vu_meter_test_phase_ = 0;
+  
+  ESP_LOGI(TAG, "Starting VU meter test - sweeping voltage across meters");
 }
 
 void RadioController::update_vu_meter_slew_() {
@@ -707,6 +757,39 @@ void RadioController::update_vu_meter_slew_() {
     return;
   }
   this->last_vu_meter_update_ = now;
+  
+  // Handle VU meter test mode
+  if (this->vu_meter_test_active_) {
+    uint32_t test_duration = now - this->vu_meter_test_start_;
+    
+    // Test for 10 seconds, then stop
+    if (test_duration > 10000) {
+      this->vu_meter_test_active_ = false;
+      ESP_LOGI(TAG, "VU meter test completed");
+      return;
+    }
+    
+    // Sweep across the 3 VU meters with different phases
+    // VU Meter 1: SW2/CS1
+    // VU Meter 2: SW2/CS2  
+    // VU Meter 3: SW2/CS3 (bipolar, requires both CS2/CS3)
+    
+    float phase1 = (test_duration / 1000.0f) * 0.5f;  // 0.5 Hz
+    float phase2 = (test_duration / 1000.0f) * 0.3f;   // 0.3 Hz (out of phase)
+    float phase3 = (test_duration / 1000.0f) * 0.7f;   // 0.7 Hz (different phase)
+    
+    uint8_t brightness1 = (uint8_t)(128 + 127 * sin(phase1 * 2 * PI));
+    uint8_t brightness2 = (uint8_t)(128 + 127 * sin(phase2 * 2 * PI));
+    uint8_t brightness3 = (uint8_t)(128 + 127 * sin(phase3 * 2 * PI));
+    
+    // Set VU meter LEDs
+    this->led_driver_->set_pixel(1, 2, brightness1);  // SW2/CS1
+    this->led_driver_->set_pixel(2, 2, brightness2);  // SW2/CS2
+    this->led_driver_->set_pixel(3, 2, brightness3);  // SW2/CS3 (bipolar)
+    
+    this->led_driver_->show();
+    return;
+  }
   
   // If we're at target, nothing to do
   if (this->vu_meter_current_brightness_ == this->vu_meter_target_brightness_) {

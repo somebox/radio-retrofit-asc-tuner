@@ -60,6 +60,8 @@ CONFIG_SCHEMA = cv.Schema({
     cv.Optional(CONF_CONTROLS): CONTROLS_SCHEMA,
     # Default service to call for all presets (can be overridden per-preset)
     cv.Optional(CONF_SERVICE, default="script.radio_play_preset"): cv.string,
+    # Mode selector text sensor
+    cv.Optional("mode_text_sensor"): cv.use_id(text_sensor_component.TextSensor),
 }).extend(cv.COMPONENT_SCHEMA)
 
 # Text sensor platform for current preset
@@ -141,6 +143,11 @@ async def to_code(config):
         if CONF_MEMORY_BUTTON in controls:
             memory = controls[CONF_MEMORY_BUTTON]
             cg.add(var.set_memory_button(memory[CONF_ROW], memory[CONF_COLUMN]))
+    
+    # Add mode text sensor if configured
+    if "mode_text_sensor" in config:
+        mode_sensor = await cg.get_variable(config["mode_text_sensor"])
+        cg.add(var.set_mode_text_sensor(mode_sensor))
     
     # Note: Preset slot text sensors are created and registered in C++
     # See radio_controller.cpp setup() method for sensor initialization
