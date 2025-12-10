@@ -166,6 +166,10 @@ api:
 ota:
   - platform: esphome
 
+# Local web interface for direct device control
+web_server:
+  port: 80
+
 wifi:
   ssid: !secret wifi_ssid
   password: !secret wifi_password
@@ -205,6 +209,31 @@ i2c:
 time:
   - platform: homeassistant
     id: ha_time
+
+# PWM output for enclosure fan (level shifter on GPIO33)
+output:
+  - platform: ledc
+    pin: GPIO33
+    id: fan_pwm
+    frequency: 25000Hz  # 25kHz for quiet 4-pin PC fans
+
+# Fan control with speed
+fan:
+  - platform: speed
+    output: fan_pwm
+    name: "Enclosure Fan"
+    id: enclosure_fan
+
+# IR Receiver (GPIO25) and Transmitter (GPIO26)
+remote_receiver:
+  pin:
+    number: GPIO25
+    inverted: true
+  dump: nec  # Log received NEC codes for debugging
+
+remote_transmitter:
+  pin: GPIO26
+  carrier_duty_percent: 50%
 
 # RetroText Display - 3 boards for 72x6 pixel display (18 characters)
 retrotext_display:
@@ -407,9 +436,47 @@ text:
 
 # Sensors
 sensor:
-  # Volume potentiometer (GPIO33 / ADC1_CH5)
+  # Enclosure temperature (AHT20 on I2C bus)
+  # Fan scales: off below min, min_speed at min, 100% at max
+  - platform: aht10
+    variant: AHT20
+    temperature:
+      name: "Enclosure Temperature"
+      id: enclosure_temp
+      # on_value:
+      #   then:
+      #     - lambda: |-
+      #         float temp = x;
+      #         float t_min = id(fan_temp_min).state;
+      #         float t_max = id(fan_temp_max).state;
+      #         float min_speed = id(fan_min_speed).state;
+              
+      #         if (temp < t_min) {
+      #           // Below threshold - fan off
+      #           auto call = id(enclosure_fan).turn_off();
+      #           call.perform();
+      #         } else if (temp >= t_max) {
+      #           // Above max - full speed
+      #           auto call = id(enclosure_fan).turn_on();
+      #           call.set_speed(100);
+      #           call.perform();
+      #         } else {
+      #           // Proportional: scale from min_speed to 100%
+      #           float ratio = (temp - t_min) / (t_max - t_min);
+      #           int speed = min_speed + ratio * (100.0 - min_speed);
+      #           ESP_LOGD("fan", "Temp %.1f°C -> Fan %d%%", temp, speed);
+      #           auto call = id(enclosure_fan).turn_on();
+      #           call.set_speed(speed);
+      #           call.perform();
+      #         }
+    humidity:
+      name: "Enclosure Humidity"
+      id: enclosure_humidity
+    update_interval: 30s
+  
+  # Volume potentiometer (GPIO32 / ADC1_CH4)
   - platform: adc
-    pin: GPIO33
+    pin: GPIO32
     name: "Volume Pot"
     id: volume_pot
     internal: true  # Don't expose to HA UI directly
@@ -468,4 +535,102 @@ number:
             // Store as normal brightness (for restoring after clock mode)
             id(normal_brightness) = (uint8_t)x;
             ESP_LOGI("brightness", "Display brightness set to: %d", (int)x);
+  
+  # Fan temperature tuning
+  - platform: template
+    name: "Fan Temp Min"
+    id: fan_temp_min
+    optimistic: true
+    min_value: 20
+    max_value: 45
+    step: 1
+    initial_value: 30
+    unit_of_measurement: "°C"
+    mode: box
+    icon: mdi:thermometer-low
+    entity_category: config
+  
+  - platform: template
+    name: "Fan Temp Max"
+    id: fan_temp_max
+    optimistic: true
+    min_value: 35
+    max_value: 60
+    step: 1
+    initial_value: 50
+    unit_of_measurement: "°C"
+    mode: box
+    icon: mdi:thermometer-high
+    entity_category: config
+  
+  - platform: template
+    name: "Fan Min Speed"
+    id: fan_min_speed
+    optimistic: true
+    min_value: 10
+    max_value: 50
+    step: 5
+    initial_value: 20
+    unit_of_measurement: "%"
+    mode: slider
+    icon: mdi:fan
+    entity_category: config
+
+# IR Buttons for Pre-Amp Control (NEC protocol, address 0x87EE)
+button:
+  - platform: template
+    name: "PreAmp Power"
+    icon: mdi:power
+    on_press:
+      - remote_transmitter.transmit_nec:
+          address: 0x87EE
+          command: 0xAA04
+  
+  - platform: template
+    name: "PreAmp Volume Up"
+    icon: mdi:volume-plus
+    on_press:
+      - remote_transmitter.transmit_nec:
+          address: 0x87EE
+          command: 0xAA0B
+  
+  - platform: template
+    name: "PreAmp Volume Down"
+    icon: mdi:volume-minus
+    on_press:
+      - remote_transmitter.transmit_nec:
+          address: 0x87EE
+          command: 0xAA0D
+  
+  - platform: template
+    name: "PreAmp Input Left"
+    icon: mdi:arrow-left-circle
+    on_press:
+      - remote_transmitter.transmit_nec:
+          address: 0x87EE
+          command: 0xAA08
+  
+  - platform: template
+    name: "PreAmp Input Right"
+    icon: mdi:arrow-right-circle
+    on_press:
+      - remote_transmitter.transmit_nec:
+          address: 0x87EE
+          command: 0xAA07
+  
+  - platform: template
+    name: "PreAmp Mute"
+    icon: mdi:volume-mute
+    on_press:
+      - remote_transmitter.transmit_nec:
+          address: 0x87EE
+          command: 0xAA5D
+  
+  - platform: template
+    name: "PreAmp Menu"
+    icon: mdi:menu
+    on_press:
+      - remote_transmitter.transmit_nec:
+          address: 0x87EE
+          command: 0xAA02
   

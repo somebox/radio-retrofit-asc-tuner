@@ -25,17 +25,18 @@
 
 ## Hardware Connections
 
-All pin assignments defined in `include/hardware/HardwareConfig.h`.
+All pin assignments defined in `esphome/devices/radio.yaml`.
 
-### I2C Devices
+### I2C Devices (GPIO21 SDA, GPIO22 SCL)
 
 | Device | Address | ADDR Pin | Purpose |
 |--------|---------|----------|---------|
 | TCA8418 Keypad Controller | 0x34 | - | Button/encoder scanning (4×10 matrix) |
+| AHT20 Temp/Humidity | 0x38 | - | Enclosure thermal monitoring |
 | IS31FL3737 Display #1 | 0x50 | GND | RetroText module 1 |
+| IS31FL3737 Preset LEDs | 0x55 | SCL | Button/mode/VU LEDs (12×12 matrix) |
 | IS31FL3737 Display #2 | 0x5A | VCC | RetroText module 2 |
 | IS31FL3737 Display #3 | 0x5F | SDA | RetroText module 3 |
-| IS31FL3737 Preset LEDs | 0x55 | SCL | Button/mode/VU LEDs (12×12 matrix) |
 
 **IS31FL3737 Address Calculation**: Base `0b1010000` + ADDR pin bits
 - GND=`0000` → 0x50, VCC=`1010` → 0x5A, SDA=`1111` → 0x5F, SCL=`0101` → 0x55
@@ -65,12 +66,36 @@ All pin assignments defined in `include/hardware/HardwareConfig.h`.
 - M2 (Q): R0, C7
 - M3 (Mono): R0, C8
 
+### GPIO Assignments
+
+| GPIO | Function | Notes |
+|------|----------|-------|
+| GPIO21 | I2C SDA | Shared bus for all I2C devices |
+| GPIO22 | I2C SCL | |
+| GPIO25 | IR Receiver | Inverted input, NEC protocol |
+| GPIO26 | IR Transmitter | 50% carrier duty, pre-amp control |
+| GPIO32 | Volume Pot | ADC1_CH4, 0-3.3V analog input |
+| GPIO33 | Fan PWM | Level-shifted output, 25kHz |
+
 ### Analog Input
 
-**Potentiometer**: GPIO33 (ADC1_CH5)
+**Volume Potentiometer**: GPIO32 (ADC1_CH4)
 - 12-bit ADC (0-3.3V), reads speaker volume control
 - Filtered with sliding window average and 2% deadzone
 - Updates Home Assistant media player volume in real-time
+
+### Outputs
+
+**Enclosure Fan**: GPIO33 (PWM via level shifter)
+- 25kHz PWM for quiet 4-pin PC fan operation
+- Proportional speed control based on AHT20 temperature
+- Configurable thresholds: Fan Temp Min (default 30°C), Fan Temp Max (50°C)
+- Fan runs at minimum speed (default 20%) at threshold, scales to 100% at max
+
+**IR Transmitter**: GPIO26
+- NEC protocol for pre-amp control (address 0x87EE)
+- 7 buttons exposed to HA: Power, Vol Up/Down, Input L/R, Mute, Menu
+- See `doc/ir-receiver.md` for command details
 
 ### LED Matrix Mapping (IS31FL3737 @ 0x55)
 
@@ -86,7 +111,7 @@ All pin assignments defined in `include/hardware/HardwareConfig.h`.
 
 ## Volume Control
 
-**Potentiometer** controls speaker volume:
+**Potentiometer** (GPIO32) controls speaker volume:
 - Reads 0-3.3V and converts to 0-100% volume
 - Calls Home Assistant `media_player.volume_set` service
 - Volume target is configured via `input_select.radio_media_player_entity` helper
@@ -96,3 +121,18 @@ All pin assignments defined in `include/hardware/HardwareConfig.h`.
 - Exposed as `Display Brightness` number entity in Home Assistant
 - Range: 10-255 (slider control)
 - Clock mode uses reduced brightness (100) automatically
+
+## Thermal Management
+
+**AHT20 Sensor** monitors enclosure temperature and humidity.
+
+**Fan Control** (GPIO33) scales with temperature:
+- Below min threshold: off
+- At min threshold: runs at minimum speed
+- Linear scaling between min and max thresholds
+- At/above max threshold: 100%
+
+Tuning parameters (adjustable in HA under Configuration):
+- `Fan Temp Min`: temperature where fan starts (default 30°C)
+- `Fan Temp Max`: temperature for full speed (default 50°C)
+- `Fan Min Speed`: lowest active speed (default 20%)

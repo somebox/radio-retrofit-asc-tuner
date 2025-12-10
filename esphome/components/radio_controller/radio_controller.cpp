@@ -828,8 +828,8 @@ void RadioController::load_playlist_data(const std::string &json_data) {
   this->playlists_.clear();
   this->playlist_index_ = 0;
   
-  // Parse JSON using ArduinoJson
-  JsonDocument doc;
+  // Parse JSON using ArduinoJson (6.x compatible)
+  DynamicJsonDocument doc(8192);
   DeserializationError error = deserializeJson(doc, json_data);
   
   if (error) {
@@ -1552,8 +1552,8 @@ void RadioController::set_memory_button(uint8_t row, uint8_t column) {
 void RadioController::load_all_favorites(const std::string &json_data) {
   ESP_LOGI(TAG, "Loading all favorites from JSON...");
   
-  // Parse JSON using ArduinoJson
-  JsonDocument doc;
+  // Parse JSON using ArduinoJson (6.x compatible)
+  DynamicJsonDocument doc(8192);
   DeserializationError error = deserializeJson(doc, json_data);
   
   if (error) {

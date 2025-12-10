@@ -122,6 +122,17 @@
 - LED state monitoring
 - Button/encoder event logging
 
+### ✅ Thermal Management & IR Control
+**Added**:
+- AHT20 temperature/humidity sensor on I2C bus
+- PWM fan control on GPIO33 (level-shifted output)
+- Auto fan control: on at 40°C, off at 35°C
+- IR receiver (GPIO25) and transmitter (GPIO26) for pre-amp control
+- 7 pre-amp control buttons exposed to Home Assistant
+
+**GPIO Changes**:
+- Volume pot moved from GPIO33 → GPIO32
+
 ### VU Meter Integration (Hardware Dependent)
 **Goal**: Real-time VU meter animation
 
@@ -182,6 +193,9 @@
 - **Display**: 3× IS31FL3737 (24×6 logical pixels = 18 chars @ 4×6)
 - **Panel**: 7 preset buttons + 1 memory button (Row 3)
 - **Encoder**: Pushbutton rotary encoder via TCA8418 (Row 2)
+- **Volume**: Analog potentiometer on GPIO32
+- **Thermal**: AHT20 temp/humidity sensor (I2C), PWM fan on GPIO33
+- **IR Control**: Receiver (GPIO25), Transmitter (GPIO26) for pre-amp
 - **Connectivity**: WiFi + NTP time
 
 ### Software Stack
