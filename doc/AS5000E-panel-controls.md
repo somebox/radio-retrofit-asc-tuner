@@ -87,7 +87,8 @@ All pin assignments defined in `esphome/devices/radio.yaml`.
 ### Outputs
 
 **Enclosure Fan**: GPIO33 (PWM via level shifter)
-- 25kHz PWM for quiet 4-pin PC fan operation
+- 3kHz PWM optimized for thin, low-RPM 80mm fans
+- 30% minimum duty cycle to overcome startup inertia and prevent stalling
 - Proportional speed control based on AHT20 temperature
 - Configurable thresholds: Fan Temp Min (default 30°C), Fan Temp Max (50°C)
 - Fan runs at minimum speed (default 20%) at threshold, scales to 100% at max

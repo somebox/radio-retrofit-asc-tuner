@@ -215,7 +215,9 @@ output:
   - platform: ledc
     pin: GPIO33
     id: fan_pwm
-    frequency: 25000Hz  # 25kHz for quiet 4-pin PC fans
+    frequency: 30kHz  # 500kHz for thin, low-RPM fans (better low-speed control)
+    min_power: 0.55    # minimum duty cycle to overcome startup inertia
+    zero_means_zero: true  # Ensure fan actually stops at 0%
 
 # Fan control with speed
 fan:
