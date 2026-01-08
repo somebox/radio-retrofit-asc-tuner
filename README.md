@@ -22,13 +22,25 @@ The original 7-segment frequency display is replaced with [RetroText](https://gi
 
 ### Requirements
 - ESP32 development board (tested on ESP32-WROVER)
-- ESPHome installed (`pip install esphome`)
+- Python 3.12 (3.14 has compatibility issues with some dependencies)
 - Home Assistant instance with Music Assistant
 - Hardware: RetroText modules, Lights-and-Buttons PCB, rotary encoder
+
+### Setup
+
+```bash
+# Create virtual environment (Python 3.12 recommended)
+python3.12 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
 
 ### Building & Flashing
 
 ```bash
+# Activate venv (if not already)
+source .venv/bin/activate
+
 # Compile firmware
 cd esphome
 esphome compile devices/radio.yaml
